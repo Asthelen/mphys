@@ -23,7 +23,7 @@ N_el_struct = 20
 N_el_aero = 7
 
 # scenario names and operating conditions
-scenario_names = ['aerostructural1'] #, 'aerostructural2']
+scenario_names = ['aerostructural1', 'aerostructural2']
 qdyn = [3E4,1E4]
 mach = [5.,3.]
 aoa = [3.,2.] # only used if use_trimming=False
@@ -50,7 +50,7 @@ class AerostructParallel(MultipointParallel if use_parallel else Multipoint):
         for i in range(len(self.options['scenario_names'])):
             coupling_nonlinear_solver = om.NonlinearBlockGS(maxiter=100, iprint=2, use_aitken=True, aitken_initial_factor=0.5)
             coupling_linear_solver = om.LinearBlockGS(maxiter=40, iprint=2, use_aitken=True, aitken_initial_factor=0.5)
-            trim_nonlinear_solver = om.NonlinearSchurSolver(atol=1e-8, rtol=1e-8, maxiter=6, max_sub_solves=60)
+            trim_nonlinear_solver = om.NonlinearSchurSolver(atol=1e-8, rtol=1e-8, maxiter=10, max_sub_solves=60)
             self.add_subsystem(self.options['scenario_names'][i],
                                     TrimmedAnalysis(
                                         aero_builder=self.options['aero_builder'],
@@ -204,33 +204,33 @@ if __name__ == "__main__":
         prob.run_driver()
         prob.cleanup()
 
-        # write out data
-        cr = om.CaseReader("optimization_history.sql")
-        driver_cases = cr.list_cases('driver')
+        if prob.model.comm.rank==0: # write out data
+            cr = om.CaseReader("optimization_history.sql")
+            driver_cases = cr.list_cases('driver')
 
-        case = cr.get_case(0)
-        cons = case.get_constraints()
-        dvs = case.get_design_vars()
-        objs = case.get_objectives()
+            case = cr.get_case(0)
+            cons = case.get_constraints()
+            dvs = case.get_design_vars()
+            objs = case.get_objectives()
 
-        f = open("optimization_history.dat","w+")
+            f = open("optimization_history.dat","w+")
 
-        for i, k in enumerate(objs.keys()):
-            f.write('objective: ' + k + '\n')
-            for j, case_id in enumerate(driver_cases):
-                f.write(str(j) + ' ' + str(cr.get_case(case_id).get_objectives(scaled=False)[k][0]) + '\n')
-            f.write(' ' + '\n')
+            for i, k in enumerate(objs.keys()):
+                f.write('objective: ' + k + '\n')
+                for j, case_id in enumerate(driver_cases):
+                    f.write(str(j) + ' ' + str(cr.get_case(case_id).get_objectives(scaled=False)[k][0]) + '\n')
+                f.write(' ' + '\n')
 
-        for i, k in enumerate(cons.keys()):
-            f.write('constraint: ' + k + '\n')
-            for j, case_id in enumerate(driver_cases):
-                f.write(str(j) + ' ' + ' '.join(map(str,cr.get_case(case_id).get_constraints(scaled=False)[k])) + '\n')
-            f.write(' ' + '\n')
+            for i, k in enumerate(cons.keys()):
+                f.write('constraint: ' + k + '\n')
+                for j, case_id in enumerate(driver_cases):
+                    f.write(str(j) + ' ' + ' '.join(map(str,cr.get_case(case_id).get_constraints(scaled=False)[k])) + '\n')
+                f.write(' ' + '\n')
 
-        for i, k in enumerate(dvs.keys()):
-            f.write('DV: ' + k + '\n')
-            for j, case_id in enumerate(driver_cases):
-                f.write(str(j) + ' ' + ' '.join(map(str,cr.get_case(case_id).get_design_vars(scaled=False)[k])) + '\n')
-            f.write(' ' + '\n')
+            for i, k in enumerate(dvs.keys()):
+                f.write('DV: ' + k + '\n')
+                for j, case_id in enumerate(driver_cases):
+                    f.write(str(j) + ' ' + ' '.join(map(str,cr.get_case(case_id).get_design_vars(scaled=False)[k])) + '\n')
+                f.write(' ' + '\n')
 
-        f.close()
+            f.close()
