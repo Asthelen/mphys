@@ -3,7 +3,9 @@ from mphys import Multipoint
 from mphys.scenario_aerostructural import ScenarioAeroStructural
 from mphys.scenario_aerodynamic import ScenarioAerodynamic
 
-class TrimmedAnalysis(Multipoint): # om.Group):
+from copy import deepcopy
+
+class TrimmedAnalysis(Multipoint):
     def initialize(self):
         self.options.declare('aero_builder', default=None, recordable=False)
         self.options.declare('struct_builder', default=None, recordable=False)
@@ -27,7 +29,7 @@ class TrimmedAnalysis(Multipoint): # om.Group):
     def setup(self):
         trim_nonlinear_solver = self.options['trim_nonlinear_solver']
         trim_linear_solver = self.options['trim_linear_solver']
-        balance_component = self.options['balance_component']
+        balance_component = deepcopy(self.options['balance_component'])
         balance_inputs = self.options['balance_inputs']
         balance_outputs = self.options['balance_outputs']
         balance_output_bounds = self.options['balance_output_bounds']
