@@ -23,11 +23,11 @@ N_el_struct = 20
 N_el_aero = 7
 
 # scenario names and operating conditions
-scenario_names = ['aerostructural1'] #,'aerostructural2']
+scenario_names = ['aerostructural1'] #, 'aerostructural2']
 qdyn = [3E4,1E4]
 mach = [5.,3.]
 aoa = [3.,2.] # only used if use_trimming=False
-target_CL = [0.15,0.45] # only used if use_trimming=True
+target_CL = [0.15,0.45] # enforced inherently if use_trimming=True, otherwise enforced by the optimizer
 
 # material properties
 material_density = 2800.
@@ -140,6 +140,10 @@ class Model(om.Group):
                 self.connect('target_CL', 'multipoint.'+scenario_names[i]+'.balance.target_CL', src_indices=[i])
             else:
                 self.connect('aoa', 'multipoint.'+scenario_names[i]+'.analysis.aoa', src_indices=[i])
+
+                # add CL constraint
+                self.add_constraint(f'multipoint.{scenario_names[i]}.analysis.C_L', equals=target_CL[i],
+                                    parallel_deriv_color='lift_cons' if use_parallel else None) # run C_L derivatives in parallel)
 
             # connect top-level geom parameter
             self.connect('geometry_morph_param', 'multipoint.'+scenario_names[i]+'.analysis.geometry.geometry_morph_param')
