@@ -15,10 +15,12 @@ class ScenarioAerodynamic(Scenario):
                              desc='Set to `True` if adding this scenario inside a MultipointParallel Group.')
         self.options.declare('geometry_builder', default=None, recordable=False,
                              desc='The optional MPhys builder for the geometry')
+        self.options.declare('controls_builder', default=None, recordable=False)
 
     def _mphys_scenario_setup(self):
         aero_builder = self.options['aero_builder']
         geometry_builder = self.options['geometry_builder']
+        controls_builder = self.options['controls_builder']
 
         if self.options['in_MultipointParallel']:
             aero_builder.initialize(self.comm)
@@ -33,5 +35,7 @@ class ScenarioAerodynamic(Scenario):
             self.connect('x_aero0','x_aero')
 
         self._mphys_add_pre_coupling_subsystem_from_builder('aero', aero_builder, self.name)
+        if controls_builder is not None:
+            self._mphys_add_pre_coupling_subsystem_from_builder('controls', controls_builder, self.name)
         self.mphys_add_subsystem('coupling',aero_builder.get_coupling_group_subsystem(self.name))
         self._mphys_add_post_coupling_subsystem_from_builder('aero', aero_builder, self.name)
