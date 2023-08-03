@@ -2,16 +2,15 @@ import numpy as np
 import openmdao.api as om
 
 from mphys import Multipoint, MultipointParallel
-from mphys.trimmed_analysis import TrimmedAnalysis
+from mphys.scenario_aerostructural_trim import ScenarioAeroStructuralTrim
 
 from structures_mphys import StructBuilder
 from aerodynamics_mphys import AeroBuilder
 from xfer_mphys import XferBuilder
 from geometry_morph import GeometryBuilder
-from trim_balance import TrimBalance
+from trim_builder import TrimBuilder
 
 use_parallel = False # True=use parallel multipoint, False=run scenarios serially
-use_trimming = True # True=trim CL via aoa, False=treat aoa as DVs and CL as constraints
 check_totals = True # True=check objective/constraint derivatives, False=run optimization
 
 # panel geometry
@@ -26,8 +25,7 @@ N_el_aero = 7
 scenario_names = ['aerostructural1', 'aerostructural2']
 qdyn = [3E4,1E4]
 mach = [5.,3.]
-aoa = [3.,2.] # only used if use_trimming=False
-target_CL = [0.15,0.45] # enforced inherently if use_trimming=True, otherwise enforced by the optimizer
+target_CL = [0.15,0.45]
 
 # material properties
 material_density = 2800.
@@ -41,25 +39,21 @@ class AerostructParallel(MultipointParallel if use_parallel else Multipoint):
         self.options.declare('struct_builder')
         self.options.declare('xfer_builder')
         self.options.declare('geometry_builder')
+        self.options.declare('trim_builder')
         self.options.declare('scenario_names')
-        self.options.declare('balance_component')
-        self.options.declare('balance_inputs', default=['C_L'])
-        self.options.declare('balance_outputs', default=['aoa'])
 
     def setup(self):
         for i in range(len(self.options['scenario_names'])):
             coupling_nonlinear_solver = om.NonlinearBlockGS(maxiter=100, iprint=2, use_aitken=True, aitken_initial_factor=0.5)
             coupling_linear_solver = om.LinearBlockGS(maxiter=40, iprint=2, use_aitken=True, aitken_initial_factor=0.5)
             trim_nonlinear_solver = om.NonlinearSchurSolver(atol=1e-8, rtol=1e-8, maxiter=10, max_sub_solves=60)
-            self.add_subsystem(self.options['scenario_names'][i],
-                                    TrimmedAnalysis(
+            self.mphys_add_scenario(self.options['scenario_names'][i],
+                                    ScenarioAeroStructuralTrim(
                                         aero_builder=self.options['aero_builder'],
                                         struct_builder=self.options['struct_builder'],
                                         ldxfer_builder=self.options['xfer_builder'],
                                         geometry_builder=self.options['geometry_builder'],
-                                        balance_component=self.options['balance_component'],
-                                        balance_inputs=self.options['balance_inputs'],
-                                        balance_outputs=self.options['balance_outputs'],
+                                        trim_builder=self.options['trim_builder'],
                                         in_MultipointParallel=True,
                                         coupling_nonlinear_solver=coupling_nonlinear_solver,
                                         coupling_linear_solver=coupling_linear_solver,
@@ -77,12 +71,7 @@ class Model(om.Group):
         self.ivc.add_output('mach', val=mach)
         self.ivc.add_output('qdyn', val=qdyn)
         self.ivc.add_output('geometry_morph_param', val=1.)
-
-        # for trimming
-        if use_trimming:
-            self.ivc.add_output('target_CL', val=target_CL)
-        else:
-            self.ivc.add_output('aoa', val=aoa, units='deg')
+        self.ivc.add_output('target_CL', val=target_CL)
 
         # create dv_struct, which is the thickness of each structural element
         thickness = 0.001*np.ones(N_el_struct)
@@ -98,7 +87,7 @@ class Model(om.Group):
         aero_setup = {'panel_chord'  : panel_chord,
                       'panel_width'  : panel_width,
                       'N_el'         : N_el_aero,
-                      'trim_mode'    : False}
+                      'trim_mode'    : True}
         aero_builder = AeroBuilder(aero_setup)
 
         # xfer builder
@@ -111,11 +100,8 @@ class Model(om.Group):
         builders = {'struct': struct_builder, 'aero': aero_builder}
         geometry_builder = GeometryBuilder(builders)
 
-        # trim balance component
-        if use_trimming:
-            trim_balance = TrimBalance()
-        else:
-            trim_balance = None
+        # trim builder
+        trim_builder = TrimBuilder()
 
         # add parallel multipoint group
         self.add_subsystem('multipoint',AerostructParallel(
@@ -123,45 +109,33 @@ class Model(om.Group):
                                         struct_builder=struct_builder,
                                         xfer_builder=xfer_builder,
                                         geometry_builder=geometry_builder,
-                                        balance_component=trim_balance,
+                                        trim_builder=trim_builder,
                                         scenario_names=scenario_names))
 
         for i in range(len(scenario_names)):
 
             # connect scalar inputs to the scenario
             for var in ['modulus', 'yield_stress', 'density', 'dv_struct']:
-                self.connect(var, 'multipoint.'+scenario_names[i]+'.analysis.'+var)
+                self.connect(var, 'multipoint.'+scenario_names[i]+'.'+var)
 
             # connect vector inputs
-            for var in ['mach', 'qdyn']:
-                self.connect(var, 'multipoint.'+scenario_names[i]+'.analysis.'+var, src_indices=[i])
-
-            # connections for trimming
-            if use_trimming:
-                self.connect('target_CL', 'multipoint.'+scenario_names[i]+'.balance.target_CL', src_indices=[i])
-            else:
-                self.connect('aoa', 'multipoint.'+scenario_names[i]+'.analysis.aoa', src_indices=[i])
-
-                # add CL constraint
-                self.add_constraint(f'multipoint.{scenario_names[i]}.analysis.C_L', equals=target_CL[i],
-                                    parallel_deriv_color='lift_cons' if use_parallel else None) # run C_L derivatives in parallel)
+            for var in ['mach', 'qdyn', 'target_CL']:
+                self.connect(var, 'multipoint.'+scenario_names[i]+'.'+var, src_indices=[i])
 
             # connect top-level geom parameter
-            self.connect('geometry_morph_param', 'multipoint.'+scenario_names[i]+'.analysis.geometry.geometry_morph_param')
+            self.connect('geometry_morph_param', 'multipoint.'+scenario_names[i]+'.geometry.geometry_morph_param')
 
             # add objective
             if i==0:
-                self.add_objective(f'multipoint.{scenario_names[i]}.analysis.mass', ref=0.01)
+                self.add_objective(f'multipoint.{scenario_names[i]}.mass', ref=0.01)
 
             # add stress constraint
-            self.add_constraint(f'multipoint.{scenario_names[i]}.analysis.func_struct', upper=1.0,
+            self.add_constraint(f'multipoint.{scenario_names[i]}.func_struct', upper=1.0,
                                 parallel_deriv_color='struct_cons' if use_parallel else None) # run func_struct derivatives in parallel
 
         # add design vars
         self.add_design_var('geometry_morph_param', lower=0.1, upper=10.0)
         self.add_design_var('dv_struct', lower=1.e-4, upper=1.e-2, ref=1.e-3)
-        if not use_trimming:
-            self.add_design_var('aoa', lower=-20., upper=20.)
 
 def get_model():
     return Model()

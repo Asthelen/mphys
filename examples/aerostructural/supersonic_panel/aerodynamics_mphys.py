@@ -20,7 +20,7 @@ class AeroSolver(om.ImplicitComponent):
 
     def setup(self):
         self.solver = self.options['solver']
-       
+
         self.add_input('x_aero', shape_by_conn=True, distributed=True, tags=['mphys_coordinates'])
         self.add_input('aoa', 0., units = 'deg', tags=['mphys_input'])
         self.add_input('qdyn', 0., tags=['mphys_input'])
@@ -61,7 +61,7 @@ class AeroSolver(om.ImplicitComponent):
             if 'pressure' in d_residuals:
                 if 'pressure' in d_outputs:
                     d_outputs['pressure'] += d_residuals['pressure']
-                    
+
                 d_xa, d_aoa, d_qdyn, d_mach = self.solver.compute_pressure_derivatives(
                     adjoint=d_residuals['pressure']
                 )
@@ -90,7 +90,7 @@ class AeroForces(om.ExplicitComponent):
 
     def compute(self,inputs,outputs):
         self.solver.xyz = inputs['x_aero']
-        self.solver.pressure = inputs['pressure'] 
+        self.solver.pressure = inputs['pressure']
 
         outputs['f_aero'] = self.solver.compute_force()
 
@@ -121,7 +121,7 @@ class AeroFunction(om.ExplicitComponent):
 
     def compute(self,inputs,outputs):
         self.solver.qdyn = inputs['qdyn']
-        self.solver.pressure = inputs['pressure'] 
+        self.solver.pressure = inputs['pressure']
 
         outputs['C_L'] = self.solver.compute_lift()
 
@@ -138,12 +138,13 @@ class AeroFunction(om.ExplicitComponent):
                     d_inputs['pressure'] += d_p
                 if 'qdyn' in d_inputs:
                     d_inputs['qdyn'] += d_qdyn
-                    
+
 
 # Group which holds the solver and force computation
 class AeroSolverGroup(om.Group):
     def initialize(self):
         self.options.declare('solver')
+        self.options.declare('trim_mode')
 
     def setup(self):
         self.add_subsystem('aero_solver', AeroSolver(
@@ -154,7 +155,13 @@ class AeroSolverGroup(om.Group):
         self.add_subsystem('aero_forces', AeroForces(
             solver = self.options['solver']),
             promotes=['*']
-        )   
+        )
+
+        if self.options['trim_mode']:
+            self.add_subsystem('aero_function', AeroFunction(
+                solver = self.options['solver']),
+                promotes=['*']
+            )
 
 
 # Group which holds the function computation
@@ -187,13 +194,14 @@ class AeroBuilder(Builder):
             x_aero0 = np.c_[self.solver.x,self.solver.y,self.solver.z].flatten(order='C')
         else:
             x_aero0 = np.zeros(0)
-        return AeroMesh(x_aero0=x_aero0) 
+        return AeroMesh(x_aero0=x_aero0)
 
     def get_coupling_group_subsystem(self, scenario_name=None):
-        return AeroSolverGroup(solver=self.solver)
+        return AeroSolverGroup(solver=self.solver, trim_mode=self.options['trim_mode'])
 
     def get_post_coupling_subsystem(self, scenario_name=None):
-        return AeroFunctionGroup(solver=self.solver)
+        if not self.options['trim_mode']:
+            return AeroFunctionGroup(solver=self.solver)
 
     def get_number_of_nodes(self):
         return self.solver.n_nodes
