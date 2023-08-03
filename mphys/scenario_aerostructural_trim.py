@@ -133,29 +133,41 @@ class ScenarioAeroStructuralTrim(Scenario):
             )
 
     def _mphys_add_coupling_group(self):
-        analysis_group = om.Group()
-        if self.options["controls_builder"] is not None:
+        if self.options["controls_builder"] is not None: # group containing controls and aerostructural coupling
+            analysis_group = om.Group()
             analysis_group.add_subsystem('controls',
                 self.options["controls_builder"].get_coupling_group_subsystem(self.name),
                 promotes=['*']
             )
-        if self.options["coupling_group_type"] == "full_coupling":
-            analysis_group.add_subsystem('coupling',
-                CouplingAeroStructural(
-                    aero_builder=self.options["aero_builder"],
-                    struct_builder=self.options["struct_builder"],
-                    ldxfer_builder=self.options["ldxfer_builder"],
-                    scenario_name=self.name),
-                promotes=['*']
-            )
-            analysis_group.coupling.nonlinear_solver = self.options['coupling_nonlinear_solver']
-            analysis_group.coupling.linear_solver = self.options['coupling_linear_solver']
+            if self.options["coupling_group_type"] == "full_coupling":
+                analysis_group.add_subsystem('coupling',
+                    CouplingAeroStructural(
+                        aero_builder=self.options["aero_builder"],
+                        struct_builder=self.options["struct_builder"],
+                        ldxfer_builder=self.options["ldxfer_builder"],
+                        scenario_name=self.name),
+                    promotes=['*']
+                )
+                analysis_group.coupling.nonlinear_solver = self.options['coupling_nonlinear_solver']
+                analysis_group.coupling.linear_solver = self.options['coupling_linear_solver']
 
-        elif self.options["coupling_group_type"] == "aerodynamics_only":
-            analysis_group.add_subsystem('analysis',
-                self.options["aero_builder"].get_coupling_group_subsystem(self.name),
-                promotes=['*']
-            )
+            elif self.options["coupling_group_type"] == "aerodynamics_only":
+                analysis_group.add_subsystem('analysis',
+                    self.options["aero_builder"].get_coupling_group_subsystem(self.name),
+                    promotes=['*']
+                )
+        else: # no need for extra group layer
+            if self.options["coupling_group_type"] == "full_coupling":
+                analysis_group = CouplingAeroStructural(
+                        aero_builder=self.options["aero_builder"],
+                        struct_builder=self.options["struct_builder"],
+                        ldxfer_builder=self.options["ldxfer_builder"],
+                        scenario_name=self.name)
+                analysis_group.nonlinear_solver = self.options['coupling_nonlinear_solver']
+                analysis_group.linear_solver = self.options['coupling_linear_solver']
+
+            elif self.options["coupling_group_type"] == "aerodynamics_only":
+                analysis_group = self.options["aero_builder"].get_coupling_group_subsystem(self.name)
 
         coupling_group = om.Group()
         coupling_group.add_subsystem('analysis', analysis_group, promotes=['*'])
