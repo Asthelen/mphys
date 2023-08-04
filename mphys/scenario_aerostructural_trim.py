@@ -90,6 +90,12 @@ class ScenarioAeroStructuralTrim(Scenario):
             recordable=False,
             desc='The linear solver for inner aerostructural solve'
         )
+        self.options.declare(
+            'trim_bounds',
+            default=None,
+            recordable=False,
+            desc='The optional bounds for trim variables'
+        )
 
     def _mphys_scenario_setup(self):
         if self.options["in_MultipointParallel"]:
@@ -192,7 +198,7 @@ class ScenarioAeroStructuralTrim(Scenario):
                                             max_sub_solves=60,
                                             mode_nonlinear='rev',
                                             groupNames=['analysis', 'trim'],
-                                            bounds=trim_bounds)
+                                            bounds=self.options['trim_bounds'])
 
         if trim_linear_solver is not None:
             trim_linear_solver._groupNames = ['analysis','trim']
