@@ -37,7 +37,7 @@ class TrimmedAnalysis(Multipoint):
         analysis_outputs = self.options['analysis_outputs']
 
         if self.options['struct_builder'] is not None and self.options['aero_builder'] is not None:
-            self.mphys_add_scenario('analysis',
+            self.mphys_add_scenario(self.name,
                                     ScenarioAeroStructural(
                                         aero_builder=self.options['aero_builder'],
                                         struct_builder=self.options['struct_builder'],
@@ -52,7 +52,7 @@ class TrimmedAnalysis(Multipoint):
                                     coupling_linear_solver=self.options['coupling_linear_solver'])
 
         elif self.options['aero_builder'] is not None: # aero only
-            self.mphys_add_scenario('analysis',
+            self.mphys_add_scenario(self.name,
                                     ScenarioAerodynamic(
                                         aero_builder=self.options['aero_builder'],
                                         geometry_builder=self.options['geometry_builder'],
@@ -68,7 +68,7 @@ class TrimmedAnalysis(Multipoint):
 
             # set solver options
             if trim_nonlinear_solver is not None:
-                trim_nonlinear_solver._groupNames = ['analysis','balance']
+                trim_nonlinear_solver._groupNames = [self.name,'balance']
                 trim_nonlinear_solver._mode_nonlinear = 'rev'
                 trim_nonlinear_solver.options['solve_subsystems'] = True
             else:
@@ -83,7 +83,7 @@ class TrimmedAnalysis(Multipoint):
                                                 bounds=balance_output_bounds)
 
             if trim_linear_solver is not None:
-                trim_linear_solver._groupNames = ['analysis','balance']
+                trim_linear_solver._groupNames = [self.name,'balance']
                 trim_linear_solver._mode_linear = 'rev'
             else:
                 trim_linear_solver = om.LinearSchur(mode_linear='rev', groupNames=["analysis", "balance"])
@@ -102,8 +102,8 @@ class TrimmedAnalysis(Multipoint):
 
             # connect from scenario to balance component
             for analysis_var, balance_var in zip(analysis_outputs, balance_inputs):
-                self.connect(f'analysis.{analysis_var}', f'balance.{balance_var}')
+                self.connect(self.name+'.'+analysis_var, f'balance.{balance_var}')
 
             # connect from balance component back to scenario
             for balance_var, analysis_var in zip(balance_outputs, analysis_inputs):
-                self.connect(f'balance.{balance_var}', f'analysis.{analysis_var}')
+                self.connect(f'balance.{balance_var}', self.name+'.'+analysis_var)
