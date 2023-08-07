@@ -23,8 +23,8 @@ class TrimmedAnalysis(Multipoint):
         self.options.declare('balance_output_bounds', default=None, desc='Bounds for the trim outputs (in format {"lower": [lb1,lb2,...], "upper": [ub1,ub2,...]})')
         self.options.declare('analysis_inputs', default=None, desc='Optional list of analysis input names to connect with balance outputs, in case they differ in name')
         self.options.declare('analysis_outputs', default=None, desc='Optional list of analysis output names to connect with balance inputs, in case they differ in name')
-        self.options.declare('pre_coupling_order', default=["aero", "struct", "ldxfer"])
-        self.options.declare('post_coupling_order', default=["ldxfer", "aero", "struct"])
+        self.options.declare('pre_coupling_order', default=['aero', 'struct', 'ldxfer'])
+        self.options.declare('post_coupling_order', default=['ldxfer', 'aero', 'struct'])
         self.options.declare('coupling_group_type', default='full_coupling')
     def setup(self):
         trim_nonlinear_solver = self.options['trim_nonlinear_solver']
@@ -79,14 +79,14 @@ class TrimmedAnalysis(Multipoint):
                                                 maxiter=60,
                                                 max_sub_solves=60,
                                                 mode_nonlinear='rev',
-                                                groupNames=["analysis", "balance"],
+                                                groupNames=[self.name, 'balance'],
                                                 bounds=balance_output_bounds)
 
             if trim_linear_solver is not None:
                 trim_linear_solver._groupNames = [self.name,'balance']
                 trim_linear_solver._mode_linear = 'rev'
             else:
-                trim_linear_solver = om.LinearSchur(mode_linear='rev', groupNames=["analysis", "balance"])
+                trim_linear_solver = om.LinearSchur(mode_linear='rev', groupNames=[self.name, 'balance'])
 
             # set solvers
             self.nonlinear_solver = trim_nonlinear_solver
