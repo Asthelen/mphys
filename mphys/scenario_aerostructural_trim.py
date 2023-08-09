@@ -140,6 +140,11 @@ class ScenarioAeroStructuralTrim(Scenario):
 
     def _mphys_add_coupling_group(self):
         if self.options["controls_builder"] is not None: # group containing controls and aerostructural coupling
+            controls_coupling_group = self.options["controls_builder"].get_coupling_group_subsystem(self.name)
+        else:
+            controls_coupling_group = None
+
+        if controls_coupling_group is not None:
             analysis_group = om.Group()
             analysis_group.add_subsystem('controls',
                 self.options["controls_builder"].get_coupling_group_subsystem(self.name),
