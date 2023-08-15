@@ -213,6 +213,7 @@ class ScenarioAeroStructuralTrim(Scenario):
 
         coupling_group.nonlinear_solver = trim_nonlinear_solver
         coupling_group.linear_solver = trim_linear_solver
+        coupling_group.set_solver_print(level=2, depth=4)
 
         self.mphys_add_subsystem("coupling", coupling_group)
 
