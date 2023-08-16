@@ -91,6 +91,7 @@ class TrimmedAnalysis(Multipoint):
             # set solvers
             self.nonlinear_solver = trim_nonlinear_solver
             self.linear_solver = trim_linear_solver
+            self.set_solver_print(level=2, depth=4)
 
             # for handling coupled analysis/balance inputs/outputs that differ by name
             analysis_inputs = self.options['analysis_inputs']
