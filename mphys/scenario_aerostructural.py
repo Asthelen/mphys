@@ -73,7 +73,7 @@ class ScenarioAeroStructural(Scenario):
     def _mphys_add_optional_subsystems(self):
         if self.options["controls_builder"] is not None:
             if "controls" not in self.options["pre_coupling_order"]:
-                self.options["pre_coupling_order"] += ["controls"]
+                self.options["pre_coupling_order"] = ["controls"] + self.options["pre_coupling_order"]
             if "controls" not in self.options["post_coupling_order"]:
                 self.options["post_coupling_order"] += ["controls"]
 
