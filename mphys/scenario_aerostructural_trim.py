@@ -96,6 +96,12 @@ class ScenarioAeroStructuralTrim(Scenario):
             recordable=False,
             desc='The optional bounds for trim variables'
         )
+        self.options.declare(
+            'inner_post_coupling_group',
+            default=None,
+            recordable=False,
+            desc='Additional group to add to the end of the inner coupling group'
+        )
 
     def _mphys_scenario_setup(self):
         if self.options["in_MultipointParallel"]:
@@ -110,7 +116,7 @@ class ScenarioAeroStructuralTrim(Scenario):
     def _mphys_add_optional_subsystems(self):
         if self.options["controls_builder"] is not None:
             if "controls" not in self.options["pre_coupling_order"]:
-                self.options["pre_coupling_order"] += ["controls"]
+                self.options["pre_coupling_order"] = ["controls"] + self.options["pre_coupling_order"]
             if "controls" not in self.options["post_coupling_order"]:
                 self.options["post_coupling_order"] += ["controls"]
 
@@ -180,8 +186,20 @@ class ScenarioAeroStructuralTrim(Scenario):
             elif self.options["coupling_group_type"] == "aerodynamics_only":
                 analysis_group = self.options["aero_builder"].get_coupling_group_subsystem(self.name)
 
+        if self.options["inner_post_coupling_group"] is not None:
+            analysis_group_with_post = om.Group()
+            analysis_group_with_post.add_subsystem('scenario',
+                                                    analysis_group,
+                                                    promotes=['*'])
+            analysis_group_with_post.add_subsystem("inner_post_coupling",
+                                                    self.options["inner_post_coupling_group"],
+                                                    promotes=['*'])
+
         coupling_group = om.Group()
-        coupling_group.add_subsystem('analysis', analysis_group, promotes=['*'])
+        if self.options["inner_post_coupling_group"] is not None:
+            coupling_group.add_subsystem('analysis', analysis_group_with_post, promotes=['*'])
+        else:
+            coupling_group.add_subsystem('analysis', analysis_group, promotes=['*'])
         coupling_group.add_subsystem('trim',
             self.options["trim_builder"].get_coupling_group_subsystem(self.name),
             promotes=['*']
@@ -202,14 +220,14 @@ class ScenarioAeroStructuralTrim(Scenario):
                                             maxiter=60,
                                             max_sub_solves=60,
                                             mode_nonlinear='rev',
-                                            groupNames=['analysis', 'trim'],
+                                            groupNames=['analysis','trim'],
                                             bounds=self.options['trim_bounds'])
 
         if trim_linear_solver is not None:
             trim_linear_solver._groupNames = ['analysis','trim']
             trim_linear_solver._mode_linear = 'rev'
         else:
-            trim_linear_solver = om.LinearSchur(mode_linear='rev', groupNames=['analysis', 'trim'])
+            trim_linear_solver = om.LinearSchur(mode_linear='rev', groupNames=['analysis','trim'])
 
         coupling_group.nonlinear_solver = trim_nonlinear_solver
         coupling_group.linear_solver = trim_linear_solver
