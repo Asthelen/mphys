@@ -1,5 +1,6 @@
 from mphys.scenario import Scenario
 from mphys.coupling_aerostructural import CouplingAeroStructural
+from mphys.mphys_group import MphysGroup
 
 import openmdao.api as om
 
@@ -102,6 +103,11 @@ class ScenarioAeroStructuralTrim(Scenario):
             recordable=False,
             desc='Additional group to add to the end of the inner coupling group'
         )
+        self.options.declare(
+            'variable_flap_position',
+            default=False,
+            desc='Whether control surface angles are being varied within the trim-balance loop'
+        )
 
     def _mphys_scenario_setup(self):
         if self.options["in_MultipointParallel"]:
@@ -109,7 +115,8 @@ class ScenarioAeroStructuralTrim(Scenario):
             self._mphys_add_mesh_and_geometry_subsystems()
 
         self._mphys_add_optional_subsystems()
-        self._mphys_add_pre_coupling_subsystems()
+        if not self.options['variable_flap_position']:
+            self._mphys_add_pre_coupling_subsystems()
         self._mphys_add_coupling_group()
         self._mphys_add_post_coupling_subsystems()
 
@@ -144,66 +151,56 @@ class ScenarioAeroStructuralTrim(Scenario):
                 discipline, self.options[f"{discipline}_builder"], self.name
             )
 
-    def _mphys_add_coupling_group(self):
-        if self.options["controls_builder"] is not None: # group containing controls and aerostructural coupling
-            controls_coupling_group = self.options["controls_builder"].get_coupling_group_subsystem(self.name)
-        else:
-            controls_coupling_group = None
+    def _add_inner_pre_coupling_group(self):
+        for discipline in self.options["pre_coupling_order"]:
+            subsystem = self.options[f"{discipline}_builder"].get_pre_coupling_subsystem(self.name)
+            if subsystem is not None:
+                self.analysis_group.mphys_add_subsystem(f"{discipline}_pre", subsystem)
 
-        if controls_coupling_group is not None:
-            analysis_group = om.Group()
-            analysis_group.add_subsystem('controls',
-                self.options["controls_builder"].get_coupling_group_subsystem(self.name),
-                promotes=['*']
-            )
+    def _mphys_add_coupling_group(self):
+        self.analysis_group = MphysGroup()
+        if self.options['variable_flap_position']:
+            self._add_inner_pre_coupling_group()
+
             if self.options["coupling_group_type"] == "full_coupling":
-                analysis_group.add_subsystem('coupling',
+                self.analysis_group.mphys_add_subsystem('inner_coupling',
                     CouplingAeroStructural(
                         aero_builder=self.options["aero_builder"],
                         struct_builder=self.options["struct_builder"],
                         ldxfer_builder=self.options["ldxfer_builder"],
-                        scenario_name=self.name),
-                    promotes=['*']
+                        scenario_name=self.name)
                 )
-                analysis_group.coupling.nonlinear_solver = self.options['coupling_nonlinear_solver']
-                analysis_group.coupling.linear_solver = self.options['coupling_linear_solver']
+                self.analysis_group.inner_coupling.nonlinear_solver = self.options['coupling_nonlinear_solver']
+                self.analysis_group.inner_coupling.linear_solver = self.options['coupling_linear_solver']
 
             elif self.options["coupling_group_type"] == "aerodynamics_only":
-                analysis_group.add_subsystem('analysis',
-                    self.options["aero_builder"].get_coupling_group_subsystem(self.name),
-                    promotes=['*']
+                self.analysis_group.mphys_add_subsystem('inner_coupling',
+                    self.options["aero_builder"].get_coupling_group_subsystem(self.name)
                 )
+
         else: # no need for extra group layer
             if self.options["coupling_group_type"] == "full_coupling":
-                analysis_group = CouplingAeroStructural(
+                self.analysis_group.mphys_add_subsystem('inner_coupling',
+                    CouplingAeroStructural(
                         aero_builder=self.options["aero_builder"],
                         struct_builder=self.options["struct_builder"],
                         ldxfer_builder=self.options["ldxfer_builder"],
                         scenario_name=self.name)
-                analysis_group.nonlinear_solver = self.options['coupling_nonlinear_solver']
-                analysis_group.linear_solver = self.options['coupling_linear_solver']
+                )
+                self.analysis_group.inner_coupling.nonlinear_solver = self.options['coupling_nonlinear_solver']
+                self.analysis_group.inner_coupling.linear_solver = self.options['coupling_linear_solver']
 
             elif self.options["coupling_group_type"] == "aerodynamics_only":
-                analysis_group = self.options["aero_builder"].get_coupling_group_subsystem(self.name)
+                self.analysis_group.mphys_add_subsystem('inner_coupling',
+                    self.options["aero_builder"].get_coupling_group_subsystem(self.name)
+                )
 
         if self.options["inner_post_coupling_group"] is not None:
-            analysis_group_with_post = om.Group()
-            analysis_group_with_post.add_subsystem('scenario',
-                                                    analysis_group,
-                                                    promotes=['*'])
-            analysis_group_with_post.add_subsystem("inner_post_coupling",
-                                                    self.options["inner_post_coupling_group"],
-                                                    promotes=['*'])
+            self.analysis_group.mphys_add_subsystem("inner_post_coupling", self.options["inner_post_coupling_group"])
 
-        coupling_group = om.Group()
-        if self.options["inner_post_coupling_group"] is not None:
-            coupling_group.add_subsystem('analysis', analysis_group_with_post, promotes=['*'])
-        else:
-            coupling_group.add_subsystem('analysis', analysis_group, promotes=['*'])
-        coupling_group.add_subsystem('trim',
-            self.options["trim_builder"].get_coupling_group_subsystem(self.name),
-            promotes=['*']
-        )
+        coupling_group = MphysGroup()
+        coupling_group.mphys_add_subsystem('analysis', self.analysis_group)
+        coupling_group.mphys_add_subsystem('trim', self.options["trim_builder"].get_coupling_group_subsystem(self.name))
 
         # set solver options
         trim_nonlinear_solver = self.options['trim_nonlinear_solver']
