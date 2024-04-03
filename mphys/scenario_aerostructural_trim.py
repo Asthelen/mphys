@@ -106,7 +106,14 @@ class ScenarioAeroStructuralTrim(Scenario):
         self.options.declare(
             'variable_flap_position',
             default=False,
+            recordable=False,
             desc='Whether control surface angles are being varied within the trim-balance loop'
+        )
+        self.options.declare(
+            "inner_post_coupling_disciplines",
+            default=['aero'],
+            recordable=False,
+            desc="Disciplinary builder post-coupling subsystems to add to the end of the inner coupling loop",
         )
 
     def _mphys_scenario_setup(self):
@@ -115,6 +122,8 @@ class ScenarioAeroStructuralTrim(Scenario):
             self._mphys_add_mesh_and_geometry_subsystems()
 
         self._mphys_add_optional_subsystems()
+        self._mphys_remove_outer_post_coupling()
+
         if not self.options['variable_flap_position']:
             self._mphys_add_pre_coupling_subsystems()
         self._mphys_add_coupling_group()
@@ -126,6 +135,11 @@ class ScenarioAeroStructuralTrim(Scenario):
                 self.options["pre_coupling_order"] = ["controls"] + self.options["pre_coupling_order"]
             if "controls" not in self.options["post_coupling_order"]:
                 self.options["post_coupling_order"] += ["controls"]
+
+    def _mphys_remove_outer_post_coupling(self):
+        for discipline in self.options["inner_post_coupling_disciplines"]:
+            if discipline in self.options["post_coupling_order"]:
+                self.options["post_coupling_order"].remove(discipline)
 
     def _mphys_check_coupling_order_inputs(self, given_options):
         valid_options = ["aero", "struct", "ldxfer"]
@@ -156,6 +170,12 @@ class ScenarioAeroStructuralTrim(Scenario):
             subsystem = self.options[f"{discipline}_builder"].get_pre_coupling_subsystem(self.name)
             if subsystem is not None:
                 self.analysis_group.mphys_add_subsystem(f"{discipline}_pre", subsystem)
+
+    def _add_inner_post_coupling_group(self):
+        for discipline in self.options["inner_post_coupling_disciplines"]:
+            subsystem = self.options[f"{discipline}_builder"].get_post_coupling_subsystem(self.name)
+            if subsystem is not None:
+                self.analysis_group.mphys_add_subsystem(f"{discipline}_post", subsystem)
 
     def _mphys_add_coupling_group(self):
         self.analysis_group = MphysGroup()
@@ -195,6 +215,7 @@ class ScenarioAeroStructuralTrim(Scenario):
                     self.options["aero_builder"].get_coupling_group_subsystem(self.name)
                 )
 
+        self._add_inner_post_coupling_group()
         if self.options["inner_post_coupling_group"] is not None:
             self.analysis_group.mphys_add_subsystem("inner_post_coupling", self.options["inner_post_coupling_group"])
 
