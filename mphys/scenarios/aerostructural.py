@@ -38,6 +38,11 @@ class ScenarioAeroStructural(Scenario):
             desc="The optional MPhys builder for the geometry",
         )
         self.options.declare(
+            "controls_builder",
+            default=None,
+            recordable=False,
+        )
+        self.options.declare(
             "coupling_group_type",
             default="full_coupling",
             desc='Limited flexibility for coupling group type to accomodate flutter about jig shape or DLM where coupling group can be skipped: ["full_coupling", "aerodynamics_only", None]',
@@ -60,15 +65,35 @@ class ScenarioAeroStructural(Scenario):
             self._mphys_initialize_builders()
             self._mphys_add_mesh_and_geometry_subsystems()
 
+        self._mphys_add_optional_subsystems()
         self._mphys_add_pre_coupling_subsystems()
         self._mphys_add_coupling_group()
         self._mphys_add_post_coupling_subsystems()
 
+        if self.options["controls_builder"] is not None:
+            if "controls" not in self.options["pre_coupling_order"]:
+                self.options["pre_coupling_order"] = ["controls"] + self.options[
+                    "pre_coupling_order"
+                ]
+            if "controls" not in self.options["post_coupling_order"]:
+                self.options["post_coupling_order"] += ["controls"]
+
+    def _mphys_add_optional_subsystems(self):
+        if self.options["controls_builder"] is not None:
+            if "controls" not in self.options["pre_coupling_order"]:
+                self.options["pre_coupling_order"] = ["controls"] + self.options[
+                    "pre_coupling_order"
+                ]
+            if "controls" not in self.options["post_coupling_order"]:
+                self.options["post_coupling_order"] += ["controls"]
+
     def _mphys_check_coupling_order_inputs(self, given_options):
         valid_options = ["aero", "struct", "ldxfer"]
+        if self.options["controls_builder"] is not None:
+            valid_options += ["controls"]
 
         length = len(given_options)
-        if length > 3:
+        if length > len(valid_options):
             raise ValueError(
                 f"Specified too many items in the pre/post coupling order list, len={length}"
             )
@@ -117,6 +142,10 @@ class ScenarioAeroStructural(Scenario):
         geometry_builder = self.options["geometry_builder"]
         if geometry_builder is not None:
             geometry_builder.initialize(self.comm)
+
+        controls_builder = self.options["controls_builder"]
+        if controls_builder is not None:
+            controls_builder.initialize(self.comm)
 
     def _mphys_add_mesh_and_geometry_subsystems(self):
         aero_builder: Builder = self.options["aero_builder"]
