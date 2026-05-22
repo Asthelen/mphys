@@ -3,6 +3,7 @@ from copy import deepcopy
 
 import numpy as np
 import openmdao.api as om
+from mpi4py import MPI
 
 
 class Server:
@@ -49,6 +50,10 @@ class Server:
         self.additional_constants = None
         self.design_counter = 0  # more debugging info for client side json dumping
         self.write_n2 = write_n2
+        self.metadata = None  # needed to match units on server vs. client side
+        self.coloring_info = (
+            None  # needed to recompute coloring with additional inputs/outputs
+        )
 
         self._load_the_model()
 
@@ -85,29 +90,48 @@ class Server:
         self.design_counter += 1
 
     def _compute_totals(self):
-        of, wrt = self._get_derivative_inputs_outputs()
+        ofs, wrts = self._get_derivative_inputs_outputs()
+        if self.coloring_info is None:
+            self._recompute_coloring(ofs, wrts)
         if self.ignore_runtime_warnings:
             with warnings.catch_warnings(record=True):
-                self.derivatives = self.prob.compute_totals(of=of, wrt=wrt)
+                self.derivatives = self.prob.compute_totals(
+                    of=ofs,
+                    wrt=wrts,
+                    coloring_info=self.coloring_info,
+                    debug_print=True if self.comm.rank == 0 else False,
+                )
         else:
-            self.derivatives = self.prob.compute_totals(of=of, wrt=wrt)
+            self.derivatives = self.prob.compute_totals(
+                of=ofs,
+                wrt=wrts,
+                coloring_info=self.coloring_info,
+                debug_print=True if self.comm.rank == 0 else False,
+            )
         self.current_derivatives_have_been_evaluated = True
 
+    def _recompute_coloring(self, of, wrt):
+        # of/wrt given explicitly due to potential additional inputs/outputs,
+        # but OM only setup to use coloring with default of/wrt, so we need to
+        # recompute coloring to enable parallel derivative calculation
+        self.coloring_info = self.prob.driver._coloring_info
+        of_metadata, wrt_metadata, _ = self.prob.model._get_totals_metadata(
+            driver=self.prob.driver, of=of, wrt=wrt
+        )
+        self.coloring_info.coloring = self.prob.get_total_coloring(
+            self.coloring_info, of=of_metadata, wrt=wrt_metadata, run_model=False
+        )
+
     def _get_derivative_inputs_outputs(self):
-        of = []
-        for r in self.prob.model._responses.keys():
-            of += [self.prob.model._responses[r]["source"]]
-        of += self.additional_outputs
-
-        wrt = []
-        for dv in self.prob.model._design_vars.keys():
-            wrt += [self.prob.model._design_vars[dv]["source"]]
-        wrt += self.additional_inputs
-
-        return of, wrt
+        responses = self.prob.model.get_constraints(use_prom_ivc=True)
+        responses.update(self.prob.model.get_objectives(use_prom_ivc=True))
+        design_vars = self.prob.model.get_design_vars(use_prom_ivc=True)
+        ofs = list(responses.keys()) + self.additional_outputs
+        wrts = list(design_vars.keys()) + self.additional_inputs
+        return ofs, wrts
 
     def _gather_design_inputs_from_om_problem(self, remote_output_dict={}):
-        design_vars = self.prob.model._design_vars
+        design_vars = self.prob.model.get_design_vars(use_prom_ivc=True)
         remote_output_dict["design_vars"] = {}
         for dv in design_vars.keys():
             remote_output_dict["design_vars"][dv] = {
@@ -135,11 +159,19 @@ class Server:
                     ][dv][key].tolist()
         return remote_output_dict
 
+    def _get_variable_units(self, prom_variable_name):
+        if self.metadata is None:
+            self.metadata = self.prob.model.get_io_metadata(return_rel_names=True)
+        for variable_name in self.metadata.keys():
+            if self.metadata[variable_name]["prom_name"] == prom_variable_name:
+                return self.metadata[variable_name]["units"]
+
     def _gather_additional_inputs_from_om_problem(self, remote_output_dict={}):
         remote_output_dict["additional_inputs"] = {}
         for input in self.additional_inputs:
             remote_output_dict["additional_inputs"][input] = {
-                "val": self.prob.get_val(input, get_remote=True)
+                "val": self.prob.get_val(input, get_remote=True),
+                "units": self._get_variable_units(input),
             }
             if hasattr(remote_output_dict["additional_inputs"][input]["val"], "tolist"):
                 remote_output_dict["additional_inputs"][input][
@@ -151,7 +183,8 @@ class Server:
         remote_output_dict["additional_constants"] = {}
         for constant in self.additional_constants:
             remote_output_dict["additional_constants"][constant] = {
-                "val": self.prob.get_val(constant)
+                "val": self.prob.get_val(constant),
+                "units": self._get_variable_units(constant),
             }
             if hasattr(
                 remote_output_dict["additional_constants"][constant]["val"], "tolist"
@@ -162,7 +195,8 @@ class Server:
         return remote_output_dict
 
     def _gather_design_outputs_from_om_problem(self, remote_output_dict={}):
-        responses = self.prob.model._responses
+        responses = self.prob.model.get_constraints(use_prom_ivc=True)
+        responses.update(self.prob.model.get_objectives(use_prom_ivc=True))
         remote_output_dict.update({"objective": {}, "constraints": {}})
         for r in responses.keys():
 
@@ -175,6 +209,7 @@ class Server:
                 "val": self.prob.get_val(r, get_remote=True),
                 "ref": responses[r]["ref"],
                 "ref0": responses[r]["ref0"],
+                "units": responses[r]["units"],
             }
             remote_output_dict[response_type][r] = self._set_reference_vals(
                 remote_output_dict[response_type][r], responses[r]
@@ -186,6 +221,7 @@ class Server:
                         "lower": responses[r]["lower"],
                         "upper": responses[r]["upper"],
                         "equals": responses[r]["equals"],
+                        "linear": responses[r]["linear"],
                     }
                 )
                 remote_output_dict[response_type][
@@ -240,6 +276,18 @@ class Server:
             )
         return desvar_dict
 
+    def _lower_bound_used(self, bound):
+        if hasattr(bound, "__len__"):
+            return (bound > -1e20).any()
+        else:
+            return bound
+
+    def _upper_bound_used(self, bound):
+        if hasattr(bound, "__len__"):
+            return (bound < 1e20).any()
+        else:
+            return bound
+
     def _apply_reference_vals_to_constraint_bounds(self, constraint_dict):
         if (
             constraint_dict["adder"] is None and constraint_dict["scaler"] is None
@@ -251,13 +299,13 @@ class Server:
                     + constraint_dict["ref0"]
                 )
             else:
-                if constraint_dict["lower"] > -1e20:
+                if self._lower_bound_used(constraint_dict["lower"]):
                     constraint_dict["lower"] = (
                         constraint_dict["lower"]
                         * (constraint_dict["ref"] - constraint_dict["ref0"])
                         + constraint_dict["ref0"]
                     )
-                if constraint_dict["upper"] < 1e20:
+                if self._upper_bound_used(constraint_dict["upper"]):
                     constraint_dict["upper"] = (
                         constraint_dict["upper"]
                         * (constraint_dict["ref"] - constraint_dict["ref0"])
@@ -270,12 +318,12 @@ class Server:
                     - constraint_dict["adder"]
                 )
             else:
-                if constraint_dict["lower"] > -1e20:
+                if self._lower_bound_used(constraint_dict["lower"]):
                     constraint_dict["lower"] = (
                         constraint_dict["lower"] / constraint_dict["scaler"]
                         - constraint_dict["adder"]
                     )
-                if constraint_dict["upper"] < 1e20:
+                if self._upper_bound_used(constraint_dict["upper"]):
                     constraint_dict["upper"] = (
                         constraint_dict["upper"] / constraint_dict["scaler"]
                         - constraint_dict["adder"]
@@ -286,7 +334,8 @@ class Server:
         remote_output_dict["additional_outputs"] = {}
         for output in self.additional_outputs:
             remote_output_dict["additional_outputs"][output] = {
-                "val": self.prob.get_val(output, get_remote=True)
+                "val": self.prob.get_val(output, get_remote=True),
+                "units": self._get_variable_units(output),
             }
             if hasattr(
                 remote_output_dict["additional_outputs"][output]["val"], "tolist"
@@ -297,8 +346,9 @@ class Server:
         return remote_output_dict
 
     def _gather_design_derivatives_from_om_problem(self, remote_output_dict):
-        design_vars = self.prob.model._design_vars
-        responses = self.prob.model._responses
+        design_vars = self.prob.model.get_design_vars(use_prom_ivc=True)
+        responses = self.prob.model.get_constraints(use_prom_ivc=True)
+        responses.update(self.prob.model.get_objectives(use_prom_ivc=True))
         for r in responses.keys():
 
             if responses[r]["type"] == "obj":
@@ -308,23 +358,20 @@ class Server:
 
             remote_output_dict[response_type][r]["derivatives"] = {}
             for dv in design_vars.keys():
-                deriv = self.derivatives[
-                    (responses[r]["source"], design_vars[dv]["source"])
-                ]
+                deriv = self.derivatives[(r, dv)]
                 if hasattr(deriv, "tolist"):
                     deriv = deriv.tolist()
                 remote_output_dict[response_type][r]["derivatives"][dv] = deriv
         return remote_output_dict
 
     def _gather_additional_output_derivatives_from_om_problem(self, remote_output_dict):
+        design_vars = self.prob.model.get_design_vars(use_prom_ivc=True)
         for output in self.additional_outputs:
             remote_output_dict["additional_outputs"][output]["derivatives"] = {}
 
             # wrt design vars
-            for dv in self.prob.model._design_vars.keys():
-                deriv = self.derivatives[
-                    (output, self.prob.model._design_vars[dv]["source"])
-                ]
+            for dv in design_vars.keys():
+                deriv = self.derivatives[(output, dv)]
                 if hasattr(deriv, "tolist"):
                     deriv = deriv.tolist()
                 remote_output_dict["additional_outputs"][output]["derivatives"][
@@ -343,7 +390,8 @@ class Server:
         return remote_output_dict
 
     def _gather_additional_input_derivatives_from_om_problem(self, remote_output_dict):
-        responses = self.prob.model._responses
+        responses = self.prob.model.get_constraints(use_prom_ivc=True)
+        responses.update(self.prob.model.get_objectives(use_prom_ivc=True))
         for r in responses.keys():
 
             if responses[r]["type"] == "obj":
@@ -352,7 +400,7 @@ class Server:
                 response_type = "constraints"
 
             for dv in self.additional_inputs:
-                deriv = self.derivatives[(responses[r]["source"], dv)]
+                deriv = self.derivatives[(r, dv)]
                 if hasattr(deriv, "tolist"):
                     deriv = deriv.tolist()
                 remote_output_dict[response_type][r]["derivatives"][dv] = deriv
@@ -392,13 +440,26 @@ class Server:
     def _set_design_variables_into_the_server_problem(self, input_dict):
         design_changed = False
         for key in input_dict["design_vars"].keys():
-            if (
-                self.prob.get_val(key, get_remote=True)
-                != input_dict["design_vars"][key]["val"]
-            ).any():
+            try:
+                if (
+                    self.prob.get_val(key, get_remote=True)
+                    != input_dict["design_vars"][key]["val"]
+                ).any():
+                    design_changed = True
+            except Exception as e:
+                print(
+                    f"SERVER: Unable to get val of {key} due to the following error:",
+                    flush=True,
+                )
+                print(e, flush=True)
+                print(
+                    "This can occur with certain versions of OpenMDAO upon server restart, typically due to "
+                    + "IVCs/DVs defined within parallel groups. Assuming design has changed...",
+                    flush=True,
+                )
                 design_changed = True
             self.prob.set_val(key, input_dict["design_vars"][key]["val"])
-        return design_changed
+        return self.comm.allreduce(design_changed, op=MPI.LOR)
 
     def _set_additional_inputs_into_the_server_problem(
         self, input_dict, design_changed

@@ -7,7 +7,7 @@
 MPhys is a package that standardizes high-fidelity multiphysics problems in OpenMDAO.
 MPhys eases the problem set up, provides straightforward extension to new disciplines, and has a library of OpenMDAO groups for multidisciplinary problems addressed by its standard.
 
-While MPhys does provide these conventions, it is not absolutely necessary to follow these guidelines in order to solve these types of problems with OpenMDAO given its very general coupling capability.
+While MPhys does provide these conventions, it is not necessary to follow these guidelines in order to solve these types of problems with OpenMDAO given its very general coupling capability.
 However, by following the MPhys conventions, the usage of OpenMDAO for multiphysics analysis will be modular across developer groups.
 This eases technology transfer and collaboration in this area of research.
 The standardization strives for modularity of multiphysics problems with large parallel physics codes.
@@ -40,13 +40,13 @@ Open-source codes with builders and components compatible with mphys:
 
 | Code                                                       | Recommended Version* | Analysis Type                  | Notes                                                                   |
 |------------------------------------------------------------|----------------------|--------------------------------|-------------------------------------------------------------------------|
-| [ADflow](https://github.com/mdolab/adflow)                 | 2.12.0               | Aerodynamics                   | Structured multi-block and overset CFD.                                 |
-| [DAfoam](https://github.com/mdolab/dafoam)                 | 3.2.0                | Aerodynamics                   | Discrete Adjoint with OpenFOAM.                                         |
-| [OpenAeroStruct](https://github.com/mdolab/openaerostruct) | 2.9.1                | Aerodynamics                   | Vortex lattice aerodynamics written using OpenMDAO.                     |
-| [FunToFEM](https://github.com/smdogroup/funtofem)          | 0.3.8                | Load and Displacement Transfer | Point cloud based transfer scheme. Part of the FUNtoFEM package.        |
-| [pyCycle](https://github.com/OpenMDAO/pyCycle)             | 4.3.0                | Propulsion                     | Thermodynamic cycle modeling library for engines.                       |
-| [pyGeo](https://github.com/mdolab/pygeo)                   | 1.15.0               | Geometric Parameterization     | Wrapper for ESP, OpenVSP, and a free-form deformation parameterization. |
-| [TACS](https://github.com/smdogroup/tacs)                  | 3.8.0                | Structures                     | Parallel Finite Element Analysis. |
+| [ADflow](https://github.com/mdolab/adflow)                 | 2.12.2               | Aerodynamics                   | Structured multi-block and overset CFD.                                 |
+| [DAfoam](https://github.com/mdolab/dafoam)                 | 4.0.3                | Aerodynamics                   | Discrete Adjoint with OpenFOAM.                                         |
+| [OpenAeroStruct](https://github.com/mdolab/openaerostruct) | 2.12.0               | Aerodynamics                   | Vortex lattice aerodynamics written using OpenMDAO.                     |
+| [FunToFEM](https://github.com/smdogroup/funtofem)          | 0.3.10               | Load and Displacement Transfer | Point cloud based transfer scheme. Part of the FUNtoFEM package.        |
+| [pyCycle](https://github.com/OpenMDAO/pyCycle)             | 4.4.0                | Propulsion                     | Thermodynamic cycle modeling library for engines.                       |
+| [pyGeo](https://github.com/mdolab/pygeo)                   | 1.17.0               | Geometric Parameterization     | Wrapper for ESP, OpenVSP, and a free-form deformation parameterization. |
+| [TACS](https://github.com/smdogroup/tacs)                  | 3.10.0               | Structures                     | Parallel Finite Element Analysis.                                       |
 
 \* Recommended version to run mphys examples. Older versions may still be supported.
 
