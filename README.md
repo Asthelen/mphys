@@ -46,7 +46,7 @@ Open-source codes with builders and components compatible with mphys:
 | [FunToFEM](https://github.com/smdogroup/funtofem)          | 0.3.10               | Load and Displacement Transfer | Point cloud based transfer scheme. Part of the FUNtoFEM package.        |
 | [pyCycle](https://github.com/OpenMDAO/pyCycle)             | 4.4.0                | Propulsion                     | Thermodynamic cycle modeling library for engines.                       |
 | [pyGeo](https://github.com/mdolab/pygeo)                   | 1.17.0               | Geometric Parameterization     | Wrapper for ESP, OpenVSP, and a free-form deformation parameterization. |
-| [TACS](https://github.com/smdogroup/tacs)                  | 3.10.0               | Structures                     | Parallel Finite Element Analysis.                                       |
+| [TACS](https://github.com/smdogroup/tacs)                  | 3.12.0               | Structures                     | Parallel Finite Element Analysis.                                       |
 
 \* Recommended version to run mphys examples. Older versions may still be supported.
 
