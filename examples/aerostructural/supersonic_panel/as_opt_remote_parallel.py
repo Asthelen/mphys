@@ -1,3 +1,4 @@
+import os, socket
 import openmdao.api as om
 from as_opt_parallel import run_check_totals, run_optimization
 from pbs4py import PBS
@@ -14,11 +15,7 @@ class ParallelRemoteGroup(om.ParallelGroup):
         # NOTE: make sure setup isn't called multiple times, otherwise the first jobs/port forwarding will go unused and you'll have to stop them manually
         for i in range(self.options["num_scenarios"]):
 
-            pbs_launcher = PBS.k4(
-                profile_filename="~/.bashrc", requested_number_of_nodes=1, time=1
-            )
-            pbs_launcher.mpiexec = "mpirun"
-            pbs_launcher.requested_number_of_nodes = 1
+            pbs_launcher = _get_pbs_launcher()
 
             # output functions of interest, which aren't already added as objective/constraints on server side
             if i == 0:
@@ -54,6 +51,39 @@ class ParallelRemoteGroup(om.ParallelGroup):
                 ],  # non-distributed IVCs
                 promotes_outputs=["*"],
             )
+
+    def _get_pbs_launcher(self):
+
+        # get hostname
+        if os.environ.get("PBS_O_HOST") is not None:  # running from HPC job
+            host = os.environ.get("PBS_O_HOST")
+        else:  # running from login node
+            host = socket.gethostname()
+
+        # check if using nas or k
+        if host.startswith("k4-li"):
+            hpc = "k"
+        elif host.startswith("pfe"):
+            hpc = "nas"
+        else:
+            raise ValueError(f"Unable to determine if running from NAS or K based on hostname '{host}'")
+
+        if hpc=="k":
+            pbs_launcher = PBS.k4(
+                profile_filename="~/.bashrc",
+                requested_number_of_nodes=1,
+                time=1,
+            )
+        elif hpc=="nas":
+            pbs_launcher = PBS.nas(
+                profile_filename="~/.bashrc",
+                requested_number_of_nodes=1,
+                time=1,
+                # group_list=None, # add group list here
+                proc_type="bro",
+            )
+
+        return pbs_launcher
 
 
 class TopLevelGroup(om.Group):
