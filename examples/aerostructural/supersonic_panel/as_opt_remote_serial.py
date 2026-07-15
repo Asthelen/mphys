@@ -1,4 +1,6 @@
-import os, socket
+import os
+import socket
+
 import openmdao.api as om
 from as_opt_parallel import write_out_optimization_data
 from pbs4py import PBS
