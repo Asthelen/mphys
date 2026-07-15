@@ -74,7 +74,9 @@ def main():
     elif host.startswith("pfe"):
         hpc = "nas"
     else:
-        raise ValueError(f"Unable to determine if running from NAS or K based on hostname '{host}'")
+        raise ValueError(
+            f"Unable to determine if running from NAS or K based on hostname '{host}'"
+        )
 
     if hpc == "nas":
 
