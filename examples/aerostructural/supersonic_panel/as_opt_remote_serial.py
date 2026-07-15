@@ -104,6 +104,7 @@ def main():
         RemoteZeroMQComp(
             run_server_filename="mphys_server.py",  # default server filename
             pbs=pbs,
+            forward_through_frontend=True if hpc == "nas" else False,
             additional_server_args="--model_filename as_opt_parallel "
             + "--scenario_name cruise pullup",
         ),  # customizable options for server file

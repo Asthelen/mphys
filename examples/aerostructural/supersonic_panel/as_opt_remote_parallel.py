@@ -17,7 +17,7 @@ class ParallelRemoteGroup(om.ParallelGroup):
         # NOTE: make sure setup isn't called multiple times, otherwise the first jobs/port forwarding will go unused and you'll have to stop them manually
         for i in range(self.options["num_scenarios"]):
 
-            pbs_launcher = self._get_pbs_launcher()
+            pbs_launcher, hpc = self._get_pbs_launcher()
 
             # output functions of interest, which aren't already added as objective/constraints on server side
             if i == 0:
@@ -42,6 +42,7 @@ class ParallelRemoteGroup(om.ParallelGroup):
                     pbs=pbs_launcher,
                     port=start_port,
                     acceptable_port_range=[start_port, end_port],
+                    forward_through_frontend=True if hpc == "nas" else False,
                     dump_separate_json=True,
                     additional_remote_inputs=["mach", "qdyn", "aoa"],
                     additional_remote_outputs=additional_remote_outputs,
@@ -87,7 +88,7 @@ class ParallelRemoteGroup(om.ParallelGroup):
                 proc_type="bro",
             )
 
-        return pbs_launcher
+        return pbs_launcher, hpc
 
 
 class TopLevelGroup(om.Group):
