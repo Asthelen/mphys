@@ -15,7 +15,7 @@ class ParallelRemoteGroup(om.ParallelGroup):
         # NOTE: make sure setup isn't called multiple times, otherwise the first jobs/port forwarding will go unused and you'll have to stop them manually
         for i in range(self.options["num_scenarios"]):
 
-            pbs_launcher = _get_pbs_launcher()
+            pbs_launcher = self._get_pbs_launcher()
 
             # output functions of interest, which aren't already added as objective/constraints on server side
             if i == 0:

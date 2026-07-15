@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import socket
 import subprocess
 import time
@@ -225,7 +226,11 @@ class MPhysZeroMQServerManager(ServerManager):
         )
 
     def _setup_ssh(self):
-        ssh_command = f"ssh -4 -o ServerAliveCountMax=40 -o ServerAliveInterval=15 -N -L {self.port}:localhost:{self.port} {self.job.hostname} &"
+        front_end_host = os.environ.get("PBS_O_HOST")
+        if front_end_host is not None:
+            ssh_command = f"ssh -4 -o ServerAliveCountMax=40 -o ServerAliveInterval=15 -N -L {self.port}:localhost:{self.port} -J {front_end_host} {self.job.hostname} &"
+        else:
+            ssh_command = f"ssh -4 -o ServerAliveCountMax=40 -o ServerAliveInterval=15 -N -L {self.port}:localhost:{self.port} {self.job.hostname} &"
         self.ssh_proc = subprocess.Popen(
             ssh_command.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
