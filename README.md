@@ -40,8 +40,8 @@ Open-source codes with builders and components compatible with mphys:
 
 | Code                                                       | Recommended Version* | Analysis Type                  | Notes                                                                   |
 |------------------------------------------------------------|----------------------|--------------------------------|-------------------------------------------------------------------------|
-| [ADflow](https://github.com/mdolab/adflow)                 | 2.12.2               | Aerodynamics                   | Structured multi-block and overset CFD.                                 |
-| [DAfoam](https://github.com/mdolab/dafoam)                 | 4.0.3                | Aerodynamics                   | Discrete Adjoint with OpenFOAM.                                         |
+| [ADflow](https://github.com/mdolab/adflow)                 | 2.13.1               | Aerodynamics                   | Structured multi-block and overset CFD.                                 |
+| [DAfoam](https://github.com/mdolab/dafoam)                 | 5.0.0                | Aerodynamics                   | Discrete Adjoint with OpenFOAM.                                         |
 | [OpenAeroStruct](https://github.com/mdolab/openaerostruct) | 2.12.0               | Aerodynamics                   | Vortex lattice aerodynamics written using OpenMDAO.                     |
 | [FunToFEM](https://github.com/smdogroup/funtofem)          | 0.3.10               | Load and Displacement Transfer | Point cloud based transfer scheme. Part of the FUNtoFEM package.        |
 | [pyCycle](https://github.com/OpenMDAO/pyCycle)             | 4.4.0                | Propulsion                     | Thermodynamic cycle modeling library for engines.                       |
