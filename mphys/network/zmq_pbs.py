@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import socket
 import subprocess
 import time
@@ -26,6 +27,11 @@ class RemoteZeroMQComp(RemoteComp):
             "acceptable_port_range",
             default=[5081, 6000],
             desc="port range to look through if 'port' is currently busy",
+        )
+        self.options.declare(
+            "forward_through_frontend",
+            default=False,
+            desc="whether to have ssh port forwarding jump through frontend node, in case compute nodes cannot communicate",
         )
         self.options.declare(
             "additional_server_args",
@@ -67,6 +73,7 @@ class RemoteZeroMQComp(RemoteComp):
                 component_name=self.name,
                 port=self.options["port"],
                 acceptable_port_range=self.options["acceptable_port_range"],
+                forward_through_frontend=self.options["forward_through_frontend"],
                 additional_server_args=self.options["additional_server_args"],
                 job_expiration_max_restarts=self.options["job_expiration_max_restarts"],
             )
@@ -89,6 +96,8 @@ class MPhysZeroMQServerManager(ServerManager):
         Desired port number for ssh port forwarding
     acceptable_port_range : list
         Range of alternative port numbers if specified port is already in use
+    forward_through_frontend: bool
+        Setup ssh forwarding to jump through frontend node ($PBS_O_HOST). For cases where compute nodes cannot communicate
     additional_server_args : str
         Optional arguments to give server, in addition to --port <port number>
     job_expiration_max_restarts : int
@@ -102,6 +111,7 @@ class MPhysZeroMQServerManager(ServerManager):
         component_name: str,
         port=5081,
         acceptable_port_range=[5081, 6000],
+        forward_through_frontend=False,
         additional_server_args="",
         job_expiration_max_restarts=None,
     ):
@@ -110,6 +120,7 @@ class MPhysZeroMQServerManager(ServerManager):
         self.component_name = component_name
         self.port = port
         self.acceptable_port_range = acceptable_port_range
+        self.forward_through_frontend = forward_through_frontend
         self.additional_server_args = additional_server_args
         self.job_expiration_max_restarts = job_expiration_max_restarts
         self.queue_time_delay = (
@@ -225,7 +236,11 @@ class MPhysZeroMQServerManager(ServerManager):
         )
 
     def _setup_ssh(self):
-        ssh_command = f"ssh -4 -o ServerAliveCountMax=40 -o ServerAliveInterval=15 -N -L {self.port}:localhost:{self.port} {self.job.hostname} &"
+        front_end_host = os.environ.get("PBS_O_HOST")
+        if front_end_host is not None and self.forward_through_frontend:
+            ssh_command = f"ssh -4 -o ServerAliveCountMax=40 -o ServerAliveInterval=15 -N -L {self.port}:localhost:{self.port} -J {front_end_host} {self.job.hostname} &"
+        else:
+            ssh_command = f"ssh -4 -o ServerAliveCountMax=40 -o ServerAliveInterval=15 -N -L {self.port}:localhost:{self.port} {self.job.hostname} &"
         self.ssh_proc = subprocess.Popen(
             ssh_command.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )

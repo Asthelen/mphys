@@ -1,3 +1,6 @@
+import os
+import socket
+
 import openmdao.api as om
 from as_opt_parallel import write_out_optimization_data
 from pbs4py import PBS
@@ -60,7 +63,22 @@ def run_optimization(prob: om.Problem):
 
 def main():
     check_totals = False
-    hpc = "k"  # nas or k
+
+    # get hostname
+    if os.environ.get("PBS_O_HOST") is not None:  # running from HPC job
+        host = os.environ.get("PBS_O_HOST")
+    else:  # running from login node
+        host = socket.gethostname()
+
+    # check if using nas or k
+    if host.startswith("k4-li"):
+        hpc = "k"
+    elif host.startswith("pfe"):
+        hpc = "nas"
+    else:
+        raise ValueError(
+            f"Unable to determine if running from NAS or K based on hostname '{host}'"
+        )
 
     if hpc == "nas":
 
@@ -86,6 +104,7 @@ def main():
         RemoteZeroMQComp(
             run_server_filename="mphys_server.py",  # default server filename
             pbs=pbs,
+            forward_through_frontend=True if hpc == "nas" else False,
             additional_server_args="--model_filename as_opt_parallel "
             + "--scenario_name cruise pullup",
         ),  # customizable options for server file
