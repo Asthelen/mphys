@@ -219,7 +219,7 @@ class RemoteComp(om.ExplicitComponent):
 
     def evaluate_model(self, remote_input_dict=None, command="initialize"):
 
-        # first check if able to reuse dumped json file 
+        # first check if able to reuse dumped json file
         remote_output_dict = self._reuse_dumped_json(remote_input_dict, command)
         if remote_output_dict is not None:
             return remote_output_dict
@@ -398,17 +398,13 @@ class RemoteComp(om.ExplicitComponent):
             return int(match.group(1))
 
         save_dir = "remote_json_files"
-        dict_type = "outputs"
-        if not self.dump_separate_json or not self.reuse_dumped_json or not os.path.isdir(save_dir):
+        if not self.reuse_dumped_json or not os.path.isdir(save_dir):
             return None
 
         if command == "initialize":
 
-            if self._doing_derivative_evaluation(command):
-                filename = f"{save_dir}/{self.name}_{dict_type}_derivative0.json"                
-            else:
-                filename = f"{save_dir}/{self.name}_{dict_type}_function0.json"
-
+            # assume *_function0.json contains info needed for design problem setup
+            filename = f"{save_dir}/{self.name}_outputs_function0.json"
             if not os.path.isfile(filename):
                 return None
             else:
@@ -423,23 +419,26 @@ class RemoteComp(om.ExplicitComponent):
                     self._print_status_message(f"Obtained design problem info from dumped json file '{filename}'")
                 return remote_output_dict
 
-        else:  # possible filenames to read through
+        else:
 
-            filenames = sorted(glob(f"{save_dir}/{self.name}_{dict_type}_derivative*.json"), key=extract_number)
+            # possible filenames to read through
+            filenames = sorted(glob(f"{save_dir}/{self.name}_outputs_derivative*.json"), key=extract_number)
             if not self._doing_derivative_evaluation(command):
-                filenames += sorted(glob(f"{save_dir}/{self.name}_{dict_type}_function*.json"), key=extract_number)
+                filenames += sorted(glob(f"{save_dir}/{self.name}_outputs_function*.json"), key=extract_number)
 
             # check each json file for design of interest
             for filename in filenames:
                 with open(filename, 'r') as file:
-                    new_output_dict = json.load(file)
-
-                if self._designs_match(remote_input_dict, new_output_dict):
+                    remote_output_dict = json.load(file)
+                if self._designs_match(remote_input_dict, remote_output_dict):
+                    model_time_elapsed = remote_output_dict["wall_time"]
                     if self._doing_derivative_evaluation(command):
                         self._print_status_message(f"Found design derivatives in dumped json file '{filename}'")
+                        self.times_gradient = np.hstack([self.times_gradient, model_time_elapsed])
                     else:
                         self._print_status_message(f"Found design responses in dumped json file '{filename}'")
-                    return new_output_dict
+                        self.times_function = np.hstack([self.times_function, model_time_elapsed])
+                    return remote_output_dict
 
         return None
 
