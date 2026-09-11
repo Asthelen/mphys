@@ -422,9 +422,10 @@ class RemoteComp(om.ExplicitComponent):
         else:
 
             # possible filenames to read through
-            filenames = sorted(glob(f"{save_dir}/{self.name}_outputs_derivative*.json"), key=extract_number)
+            filenames = []
             if not self._doing_derivative_evaluation(command):
                 filenames += sorted(glob(f"{save_dir}/{self.name}_outputs_function*.json"), key=extract_number)
+            filenames += sorted(glob(f"{save_dir}/{self.name}_outputs_derivative*.json"), key=extract_number)
 
             # check each json file for design of interest
             for filename in filenames:
