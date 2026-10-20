@@ -717,7 +717,8 @@ class TestRemoteCompCompressedJsonDump(unittest.TestCase):
             for key in ["wall_time", "down_time", "design_counter"]:
                 plain_dict.pop(key, None)
                 compressed_dict.pop(key, None)
-            self.assertEqual(compressed_dict, plain_dict, name)  # exact equality, no tolerance
+            # exact equality, no tolerance
+            self.assertEqual(compressed_dict, plain_dict, name)
 
     def test_compressed_files_are_smaller(self):
         self._run_and_dump(dump_separate_json=True, compress_dumped_json=False)
@@ -830,7 +831,9 @@ class TestRemoteCompCompressedJsonDump(unittest.TestCase):
         # without the signature cache the i-th lookup would parse i files
         # (1 + sum(1..n) = 29 loads here); with it each file is parsed about once
         self.assertLessEqual(mocked.call_count, n_output_files + 1)
-        self.assertLess(mocked.call_count, 1 + n_output_files * (n_output_files + 1) // 2)
+        self.assertLess(
+            mocked.call_count, 1 + n_output_files * (n_output_files + 1) // 2
+        )
 
     def test_signature_cache_invalidated_when_file_changes(self):
         prob = build_problem(

@@ -237,7 +237,8 @@ class RemoteComp(om.ExplicitComponent):
             self.dump_separate_json = self.options["dump_separate_json"]
             self.reuse_dumped_json = self.options["reuse_dumped_json"]
             self.compress_dumped_json = self.options["compress_dumped_json"]
-            self._dumped_json_designs = {}  # design stored in each dumped output file, to avoid re-parsing
+            # design stored in each dumped output file, to avoid re-parsing
+            self._dumped_json_designs = {}
             self.additional_remote_inputs = self.options["additional_remote_inputs"]
             self.additional_remote_outputs = self.options["additional_remote_outputs"]
             self.additional_remote_constants = self.options[
@@ -622,10 +623,14 @@ class RemoteComp(om.ExplicitComponent):
         # previously unseen json file... load and save in cache
         if cache_key not in self._dumped_json_designs:
             output_dict = self._load_json(filename)
-            self._dumped_json_designs[cache_key] = self._design_in_dumped_json(output_dict)
+            self._dumped_json_designs[cache_key] = self._design_in_dumped_json(
+                output_dict
+            )
 
         # design in dumped json file does not match required design in remote_input_dict
-        if not self._designs_match(remote_input_dict, self._dumped_json_designs[cache_key]):
+        if not self._designs_match(
+            remote_input_dict, self._dumped_json_designs[cache_key]
+        ):
             return None
 
         # newly read json file matches the required design
@@ -639,10 +644,13 @@ class RemoteComp(om.ExplicitComponent):
     @staticmethod
     def _design_in_dumped_json(output_dict):
         """
-        The inputs (design vars, additional constants/inputs) stored in a dumped output dict
-        ."""
+        The inputs (design vars, additional constants/inputs) stored in a dumped output dict.
+        """
         return {
-            key: {name: {"val": meta["val"]} for name, meta in output_dict.get(key, {}).items()}
+            key: {
+                name: {"val": meta["val"]}
+                for name, meta in output_dict.get(key, {}).items()
+            }
             for key in ("design_vars", "additional_constants", "additional_inputs")
         }
 
