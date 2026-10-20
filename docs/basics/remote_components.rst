@@ -125,6 +125,7 @@ The files can be inspected with, e.g., :code:`zcat <file>.json.gz | python -m js
 The :code:`reuse_dumped_json` option (which internally turns the :code:`dump_separate_json` option on) makes the component look through these output files (both :code:`.json` and :code:`.json.gz`) before contacting the server.
 In the case of server initialization, the file :code:`<component name>_outputs_function0.json[.gz]`, if it exists and was written with the same additional remote inputs/outputs/constants, will be used to set all inputs and outputs on the client side, without having to run an analysis on the server side.
 For a normal function or gradient evaluation, a JSON output file corresponding to the current design (i.e., with the same design variables and additional remote inputs/constants), if it exists, will provide the outputs.
+The design stored in each file is cached in memory after the file is first parsed, so replaying a long optimization only parses each dumped file about once rather than rescanning every file for every evaluation.
 This allows for various troubleshooting on the client-side without having to re-run costly analyses on the server-side.
 Alternatively, this also allows an interrupted optimization to be re-run up to the point where it stopped, without re-evaluating designs on the HPC; a server is only launched once a new design is encountered.
 

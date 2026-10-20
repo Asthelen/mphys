@@ -237,6 +237,7 @@ class RemoteComp(om.ExplicitComponent):
             self.dump_separate_json = self.options["dump_separate_json"]
             self.reuse_dumped_json = self.options["reuse_dumped_json"]
             self.compress_dumped_json = self.options["compress_dumped_json"]
+            self._dumped_json_designs = {}  # design stored in each dumped output file, to avoid re-parsing
             self.additional_remote_inputs = self.options["additional_remote_inputs"]
             self.additional_remote_outputs = self.options["additional_remote_outputs"]
             self.additional_remote_constants = self.options[
@@ -582,8 +583,10 @@ class RemoteComp(om.ExplicitComponent):
 
             # check each json file for design of interest
             for filename in filenames:
-                remote_output_dict = self._load_json(filename)
-                if self._designs_match(remote_input_dict, remote_output_dict):
+                remote_output_dict = self._load_dumped_json_if_design_matches(
+                    filename, remote_input_dict
+                )
+                if remote_output_dict is not None:
                     model_time_elapsed = remote_output_dict["wall_time"]
                     if self._doing_derivative_evaluation(command):
                         self._print_status_message(
@@ -602,6 +605,46 @@ class RemoteComp(om.ExplicitComponent):
                     return remote_output_dict
 
         return None
+
+    def _load_dumped_json_if_design_matches(self, filename, remote_input_dict):
+        """
+        Checks a previously dumped json file to determine if it contains the design
+        of interest in remote_input_dict.
+
+        Caches design info into a dict, keyed by file name, modification time, and
+        size, so that non-matching files do not have to be rechecked/parsed again
+        """
+        stat = os.stat(filename)
+        cache_key = (filename, stat.st_mtime_ns, stat.st_size)
+
+        output_dict = None
+
+        # previously unseen json file... load and save in cache
+        if cache_key not in self._dumped_json_designs:
+            output_dict = self._load_json(filename)
+            self._dumped_json_designs[cache_key] = self._design_in_dumped_json(output_dict)
+
+        # design in dumped json file does not match required design in remote_input_dict
+        if not self._designs_match(remote_input_dict, self._dumped_json_designs[cache_key]):
+            return None
+
+        # newly read json file matches the required design
+        elif output_dict is not None:
+            return output_dict
+
+        # design was cached from an earlier lookup and matches, so get outputs from file
+        else:
+            return self._load_json(filename)
+
+    @staticmethod
+    def _design_in_dumped_json(output_dict):
+        """
+        The inputs (design vars, additional constants/inputs) stored in a dumped output dict
+        ."""
+        return {
+            key: {name: {"val": meta["val"]} for name, meta in output_dict.get(key, {}).items()}
+            for key in ("design_vars", "additional_constants", "additional_inputs")
+        }
 
     def _designs_match(self, input_dict, output_dict):
         if not self._check_for_consistent_inputs(input_dict, output_dict):

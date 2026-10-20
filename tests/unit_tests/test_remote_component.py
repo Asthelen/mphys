@@ -801,6 +801,70 @@ class TestRemoteCompCompressedJsonDump(unittest.TestCase):
             assert_near_equal(prob3.get_val(name), val, tolerance=1e-12)
         self.assertIsNone(prob3.model.remote.server)
 
+    def test_reuse_parses_each_dumped_file_only_once(self):
+        ys = [3.0, 1.0, -1.0, 2.5, 0.25, -3.0]
+        prob = build_problem(dump_separate_json=True, run_directory=self.run_dir)
+        prob.setup()
+        for y in ys:
+            prob.set_val("y", y)
+            prob.run_model()
+        n_output_files = len(ys) + 1  # initialize + one per run_model
+
+        prob2 = build_problem(
+            server_factory=UnreachableServer,
+            server_manager=RecordingServerManager(),
+            reuse_dumped_json=True,
+            run_directory=self.run_dir,
+        )
+        load_json = InProcessRemoteComp._load_json
+        with mock.patch.object(
+            InProcessRemoteComp, "_load_json", side_effect=load_json
+        ) as mocked:
+            prob2.setup()
+            for y in ys:
+                prob2.set_val("y", y)
+                prob2.run_model()
+                expected = expected_outputs([1.0, 2.0], y, 0.5, 10.0)
+                for name, val in expected.items():
+                    assert_near_equal(prob2.get_val(name), val, tolerance=1e-12)
+        # without the signature cache the i-th lookup would parse i files
+        # (1 + sum(1..n) = 29 loads here); with it each file is parsed about once
+        self.assertLessEqual(mocked.call_count, n_output_files + 1)
+        self.assertLess(mocked.call_count, 1 + n_output_files * (n_output_files + 1) // 2)
+
+    def test_signature_cache_invalidated_when_file_changes(self):
+        prob = build_problem(
+            dump_separate_json=True,
+            compress_dumped_json=False,
+            run_directory=self.run_dir,
+        )
+        prob.setup()
+        prob.run_model()
+
+        prob2 = build_problem(
+            server_factory=UnreachableServer,
+            server_manager=RecordingServerManager(),
+            reuse_dumped_json=True,
+            run_directory=self.run_dir,
+        )
+        prob2.setup()
+        prob2.run_model()
+        assert_near_equal(prob2.get_val("f"), 14.5, tolerance=1e-12)
+
+        # rewrite function1 as if it held a different design (y = -2) with a tagged output
+        path = os.path.join(self.json_dir, "remote_outputs_function1.json")
+        with open(path) as f:
+            dumped = json.load(f)
+        dumped["design_vars"]["y"]["val"] = [-2.0]
+        dumped["objective"]["f"]["val"] = [-777.0]
+        with open(path, "w") as f:
+            json.dump(dumped, f, indent=4)
+
+        prob2.set_val("y", -2.0)
+        prob2.run_model()
+        assert_near_equal(prob2.get_val("f"), -777.0, tolerance=1e-12)
+        self.assertIsNone(prob2.model.remote.server)
+
     def test_compressed_file_preferred_over_plain_duplicate(self):
         prob = build_problem(
             dump_separate_json=True,
