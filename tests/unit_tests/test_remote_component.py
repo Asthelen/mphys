@@ -1,4 +1,5 @@
 import contextlib
+import gzip
 import io
 import json
 import os
@@ -518,7 +519,9 @@ class TestRemoteCompJsonDump(unittest.TestCase):
         self.tmpdir.cleanup()
 
     def test_dump_json_single_file(self):
-        prob = build_problem(dump_json=True, run_directory=self.run_dir)
+        prob = build_problem(
+            dump_json=True, compress_dumped_json=False, run_directory=self.run_dir
+        )
         prob.setup()
         prob.run_model()
         for kind in ["inputs", "outputs"]:
@@ -531,7 +534,11 @@ class TestRemoteCompJsonDump(unittest.TestCase):
         assert_near_equal(dumped["objective"]["f"]["val"], [14.5])
 
     def test_dump_separate_json_files(self):
-        prob = build_problem(dump_separate_json=True, run_directory=self.run_dir)
+        prob = build_problem(
+            dump_separate_json=True,
+            compress_dumped_json=False,
+            run_directory=self.run_dir,
+        )
         prob.setup()
         prob.run_model()
         prob.compute_totals(of=["f"], wrt=["x"])
@@ -554,7 +561,11 @@ class TestRemoteCompJsonDump(unittest.TestCase):
         self.assertIn("derivatives", dumped["objective"]["f"])
 
     def test_reuse_dumped_json_avoids_server(self):
-        prob = build_problem(dump_separate_json=True, run_directory=self.run_dir)
+        prob = build_problem(
+            dump_separate_json=True,
+            compress_dumped_json=False,
+            run_directory=self.run_dir,
+        )
         prob.setup()
         prob.run_model()
         prob.compute_totals(of=["f", "g", "h", "k", "z"], wrt=["x", "y", "p"])
@@ -585,7 +596,11 @@ class TestRemoteCompJsonDump(unittest.TestCase):
         self.assertIsNone(prob2.model.remote.server)
 
     def test_reuse_dumped_json_falls_back_to_server_for_new_design(self):
-        prob = build_problem(dump_separate_json=True, run_directory=self.run_dir)
+        prob = build_problem(
+            dump_separate_json=True,
+            compress_dumped_json=False,
+            run_directory=self.run_dir,
+        )
         prob.setup()
         prob.run_model()
 
@@ -598,6 +613,221 @@ class TestRemoteCompJsonDump(unittest.TestCase):
         expected = expected_outputs([1.0, 2.0], -2.0, 0.5, 10.0)
         for name, val in expected.items():
             assert_near_equal(prob2.get_val(name), val, tolerance=1e-12)
+
+    def test_reuse_dumped_json_not_used_for_setup_if_additional_vars_differ(self):
+        prob = build_problem(
+            dump_separate_json=True,
+            compress_dumped_json=False,
+            run_directory=self.run_dir,
+        )
+        prob.setup()
+        prob.run_model()
+
+        # same dumped files, but now requesting a different set of additional outputs
+        prob2 = om.Problem()
+        prob2.model.add_subsystem(
+            "remote",
+            InProcessRemoteComp(
+                server_factory=lambda: InProcessServer(get_paraboloid_group),
+                additional_remote_inputs=["p"],
+                additional_remote_outputs=[],
+                additional_remote_constants=["c"],
+                reuse_dumped_json=True,
+                run_directory=self.run_dir,
+            ),
+            promotes=["*"],
+        )
+        prob2.setup()
+        self.assertIsNotNone(prob2.model.remote.server)
+        self.assertEqual(prob2.model.remote.server.messages_received, ["initialize"])
+        outputs = prob2.model.remote.list_outputs(out_stream=None, prom_name=True)
+        self.assertNotIn("z", [name for name, _ in outputs])
+
+
+class TestRemoteCompCompressedJsonDump(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.run_dir = self.tmpdir.name
+        self.json_dir = os.path.join(self.run_dir, "remote_json_files")
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def _run_and_dump(self, **options):
+        prob = build_problem(run_directory=self.run_dir, **options)
+        prob.setup()
+        prob.run_model()
+        prob.compute_totals(of=["f", "g", "h", "k", "z"], wrt=["x", "y", "p"])
+        prob.set_val("x", np.array([0.3, -1.2]))
+        prob.run_model()
+        return prob
+
+    def test_compression_is_the_default(self):
+        prob = build_problem(dump_json=True, run_directory=self.run_dir)
+        prob.setup()
+        self.assertTrue(prob.model.remote.compress_dumped_json)
+
+    def test_dump_json_single_compressed_file(self):
+        prob = build_problem(dump_json=True, run_directory=self.run_dir)
+        prob.setup()
+        prob.run_model()
+        for kind in ["inputs", "outputs"]:
+            self.assertTrue(
+                os.path.isfile(os.path.join(self.run_dir, f"remote_{kind}.json.gz"))
+            )
+            self.assertFalse(
+                os.path.isfile(os.path.join(self.run_dir, f"remote_{kind}.json"))
+            )
+        with gzip.open(os.path.join(self.run_dir, "remote_outputs.json.gz"), "rt") as f:
+            dumped = json.load(f)
+        assert_near_equal(dumped["objective"]["f"]["val"], [14.5])
+
+    def test_dump_separate_compressed_files(self):
+        self._run_and_dump(dump_separate_json=True)
+        expected_files = {
+            "remote_inputs_function0.json.gz",
+            "remote_outputs_function0.json.gz",
+            "remote_inputs_function1.json.gz",
+            "remote_outputs_function1.json.gz",
+            "remote_inputs_derivative0.json.gz",
+            "remote_outputs_derivative0.json.gz",
+            "remote_inputs_function2.json.gz",
+            "remote_outputs_function2.json.gz",
+        }
+        self.assertEqual(set(os.listdir(self.json_dir)), expected_files)
+        with gzip.open(
+            os.path.join(self.json_dir, "remote_outputs_derivative0.json.gz"), "rt"
+        ) as f:
+            dumped = json.load(f)
+        self.assertIn("derivatives", dumped["objective"]["f"])
+
+    def test_compressed_and_plain_dumps_have_identical_contents(self):
+        self._run_and_dump(dump_separate_json=True, compress_dumped_json=False)
+        plain = {}
+        for name in os.listdir(self.json_dir):
+            with open(os.path.join(self.json_dir, name)) as f:
+                plain[name] = json.load(f)
+            os.remove(os.path.join(self.json_dir, name))
+
+        self._run_and_dump(dump_separate_json=True)
+        for name, plain_dict in plain.items():
+            gz_path = os.path.join(self.json_dir, name + ".gz")
+            with gzip.open(gz_path, "rt") as f:
+                compressed_dict = json.load(f)
+            for key in ["wall_time", "down_time", "design_counter"]:
+                plain_dict.pop(key, None)
+                compressed_dict.pop(key, None)
+            self.assertEqual(compressed_dict, plain_dict, name)  # exact equality, no tolerance
+
+    def test_compressed_files_are_smaller(self):
+        self._run_and_dump(dump_separate_json=True, compress_dumped_json=False)
+        plain_size = os.path.getsize(
+            os.path.join(self.json_dir, "remote_outputs_derivative0.json")
+        )
+        for name in os.listdir(self.json_dir):
+            os.remove(os.path.join(self.json_dir, name))
+        self._run_and_dump(dump_separate_json=True)
+        gz_size = os.path.getsize(
+            os.path.join(self.json_dir, "remote_outputs_derivative0.json.gz")
+        )
+        self.assertLess(gz_size, plain_size)
+
+    def test_reuse_compressed_dumped_json_avoids_server(self):
+        prob = self._run_and_dump(dump_separate_json=True)
+        totals_ref = prob.compute_totals(
+            of=["f", "g", "h", "k", "z"], wrt=["x", "y", "p"]
+        )
+
+        prob2 = build_problem(
+            server_factory=UnreachableServer,
+            server_manager=RecordingServerManager(),
+            reuse_dumped_json=True,
+            run_directory=self.run_dir,
+        )
+        prob2.setup()
+        prob2.run_model()
+        assert_near_equal(prob2.get_val("f"), 14.5, tolerance=1e-12)
+        prob2.set_val("x", np.array([0.3, -1.2]))
+        prob2.run_model()
+        expected = expected_outputs([0.3, -1.2], 3.0, 0.5, 10.0)
+        for name, val in expected.items():
+            assert_near_equal(prob2.get_val(name), val, tolerance=1e-12)
+        totals = prob2.compute_totals(of=["f", "g", "h", "k", "z"], wrt=["x", "y", "p"])
+        for key in totals_ref:
+            assert_near_equal(totals[key], totals_ref[key], tolerance=1e-12)
+        self.assertIsNone(prob2.model.remote.server)
+
+    def test_reuse_mixed_plain_and_compressed_files(self):
+        # legacy plain files from an earlier run...
+        prob = build_problem(
+            dump_separate_json=True,
+            compress_dumped_json=False,
+            run_directory=self.run_dir,
+        )
+        prob.setup()
+        prob.run_model()
+
+        # ...a restarted run reuses them for setup/baseline and dumps a new design compressed...
+        prob2 = build_problem(reuse_dumped_json=True, run_directory=self.run_dir)
+        prob2.setup()
+        prob2.run_model()
+        self.assertIsNone(prob2.model.remote.server)
+        prob2.set_val("y", -2.0)
+        prob2.run_model()
+        self.assertEqual(prob2.model.remote.server.messages_received, ["evaluate"])
+        self.assertTrue(
+            os.path.isfile(os.path.join(self.json_dir, "remote_outputs_function0.json"))
+        )
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(self.json_dir, "remote_outputs_function2.json.gz")
+            )
+        )
+
+        # ...and a third run can reuse both the plain and compressed files
+        prob3 = build_problem(
+            server_factory=UnreachableServer,
+            server_manager=RecordingServerManager(),
+            reuse_dumped_json=True,
+            run_directory=self.run_dir,
+        )
+        prob3.setup()
+        prob3.run_model()
+        assert_near_equal(prob3.get_val("f"), 14.5, tolerance=1e-12)
+        prob3.set_val("y", -2.0)
+        prob3.run_model()
+        expected = expected_outputs([1.0, 2.0], -2.0, 0.5, 10.0)
+        for name, val in expected.items():
+            assert_near_equal(prob3.get_val(name), val, tolerance=1e-12)
+        self.assertIsNone(prob3.model.remote.server)
+
+    def test_compressed_file_preferred_over_plain_duplicate(self):
+        prob = build_problem(
+            dump_separate_json=True,
+            compress_dumped_json=False,
+            run_directory=self.run_dir,
+        )
+        prob.setup()
+        prob.run_model()
+        plain_path = os.path.join(self.json_dir, "remote_outputs_function0.json")
+        with open(plain_path) as f:
+            dumped = json.load(f)
+        # write a compressed copy with a distinguishable value, and corrupt the plain file
+        dumped["objective"]["f"]["val"] = [-999.0]
+        with gzip.open(plain_path + ".gz", "wt") as f:
+            json.dump(dumped, f)
+        with open(plain_path, "w") as f:
+            f.write("not json")
+
+        prob2 = build_problem(
+            server_factory=UnreachableServer,
+            server_manager=RecordingServerManager(),
+            reuse_dumped_json=True,
+            run_directory=self.run_dir,
+        )
+        prob2.setup()
+        prob2.run_model()
+        assert_near_equal(prob2.get_val("f"), -999.0, tolerance=1e-12)
 
 
 @unittest.skipUnless(

@@ -118,9 +118,12 @@ Similarly, the :code:`down_time` entry keeps track of the elapsed time between t
 Another entry that is only provided for informational purposes is :code:`design_counter`, which keeps track of how many different designs have been evaluated on the current server.
 By default the files :code:`<component name>_inputs.json` and :code:`<component name>_outputs.json` are overwritten on every evaluation.
 If :code:`dump_separate_json` is set to True, then separate files will be written for each design evaluation, in a :code:`remote_json_files` directory, as :code:`<component name>_<inputs|outputs>_<function|derivative><N>.json`.
+By default (:code:`compress_dumped_json=True`) the files are gzip-compressed and written with a :code:`.json.gz` extension; derivative files in particular are largely zeros and typically shrink by more than an order of magnitude.
+Compression is lossless and does not alter any values.
+The files can be inspected with, e.g., :code:`zcat <file>.json.gz | python -m json.tool`, or plain JSON can be written by setting :code:`compress_dumped_json=False`.
 
-The :code:`reuse_dumped_json` option (which internally turns the :code:`dump_separate_json` option on) makes the component look through these output files before contacting the server.
-In the case of server initialization, the file :code:`<component name>_outputs_function0.json`, if it exists, will be used to set all inputs and outputs on the client side, without having to run an analysis on the server side.
+The :code:`reuse_dumped_json` option (which internally turns the :code:`dump_separate_json` option on) makes the component look through these output files (both :code:`.json` and :code:`.json.gz`) before contacting the server.
+In the case of server initialization, the file :code:`<component name>_outputs_function0.json[.gz]`, if it exists and was written with the same additional remote inputs/outputs/constants, will be used to set all inputs and outputs on the client side, without having to run an analysis on the server side.
 For a normal function or gradient evaluation, a JSON output file corresponding to the current design (i.e., with the same design variables and additional remote inputs/constants), if it exists, will provide the outputs.
 This allows for various troubleshooting on the client-side without having to re-run costly analyses on the server-side.
 Alternatively, this also allows an interrupted optimization to be re-run up to the point where it stopped, without re-evaluating designs on the HPC; a server is only launched once a new design is encountered.

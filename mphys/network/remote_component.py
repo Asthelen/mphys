@@ -1,3 +1,4 @@
+import gzip
 import json
 import os
 import re
@@ -153,6 +154,11 @@ class RemoteComp(om.ExplicitComponent):
             desc="try to reuse existing output json files instead of running the remote component",
         )
         self.options.declare(
+            "compress_dumped_json",
+            default=True,
+            desc="gzip-compress dumped json files (written as *.json.gz); plain *.json files are still read",
+        )
+        self.options.declare(
             "var_naming_dot_replacement",
             default=":",
             desc="what to replace '.' within dv/response name trees",
@@ -230,6 +236,7 @@ class RemoteComp(om.ExplicitComponent):
             self.dump_json = self.options["dump_json"]
             self.dump_separate_json = self.options["dump_separate_json"]
             self.reuse_dumped_json = self.options["reuse_dumped_json"]
+            self.compress_dumped_json = self.options["compress_dumped_json"]
             self.additional_remote_inputs = self.options["additional_remote_inputs"]
             self.additional_remote_outputs = self.options["additional_remote_outputs"]
             self.additional_remote_constants = self.options[
@@ -513,7 +520,7 @@ class RemoteComp(om.ExplicitComponent):
     def _reuse_dumped_json(self, remote_input_dict, command):
         def extract_number(filepath):
             # for sorting filenames of json files
-            match = re.search(r"(\d+)\.json$", filepath)
+            match = re.search(r"(\d+)\.json(\.gz)?$", filepath)
             return int(match.group(1))
 
         save_dir = "remote_json_files"
@@ -523,12 +530,13 @@ class RemoteComp(om.ExplicitComponent):
         if command == "initialize":
 
             # assume *_function0.json contains info needed for design problem setup
-            filename = f"{save_dir}/{self.name}_outputs_function0.json"
-            if not os.path.isfile(filename):
+            filename = self._find_dumped_json(
+                f"{save_dir}/{self.name}_outputs_function0.json"
+            )
+            if filename is None:
                 return None
             else:
-                with open(filename, "r") as file:
-                    remote_output_dict = json.load(file)
+                remote_output_dict = self._load_json(filename)
                 for key, requested in [
                     ("additional_inputs", self.additional_remote_inputs),
                     ("additional_constants", self.additional_remote_constants),
@@ -560,18 +568,21 @@ class RemoteComp(om.ExplicitComponent):
             filenames = []
             if not self._doing_derivative_evaluation(command):
                 filenames += sorted(
-                    glob(f"{save_dir}/{self.name}_outputs_function*.json"),
+                    self._glob_dumped_json(
+                        f"{save_dir}/{self.name}_outputs_function*.json"
+                    ),
                     key=extract_number,
                 )
             filenames += sorted(
-                glob(f"{save_dir}/{self.name}_outputs_derivative*.json"),
+                self._glob_dumped_json(
+                    f"{save_dir}/{self.name}_outputs_derivative*.json"
+                ),
                 key=extract_number,
             )
 
             # check each json file for design of interest
             for filename in filenames:
-                with open(filename, "r") as file:
-                    remote_output_dict = json.load(file)
+                remote_output_dict = self._load_json(filename)
                 if self._designs_match(remote_input_dict, remote_output_dict):
                     model_time_elapsed = remote_output_dict["wall_time"]
                     if self._doing_derivative_evaluation(command):
@@ -645,8 +656,37 @@ class RemoteComp(om.ExplicitComponent):
                 filename = f"{save_dir}/{self.name}_{dict_type}_function{len(self.times_function)}.json"
         else:
             filename = f"{self.name}_{dict_type}.json"
-        with open(filename, "w") as f:
-            json.dump(remote_dict, f, indent=4)
+        if self.compress_dumped_json:
+            with gzip.open(filename + ".gz", "wt", encoding="utf-8") as f:
+                json.dump(remote_dict, f)
+        else:
+            with open(filename, "w") as f:
+                json.dump(remote_dict, f, indent=4)
+
+    @staticmethod
+    def _glob_dumped_json(pattern):
+        # both plain and gzip-compressed json files, with duplicates (same stem) resolved
+        # in favor of the compressed file
+        plain = glob(pattern)
+        compressed = glob(pattern + ".gz")
+        stems = {f[: -len(".gz")] for f in compressed}
+        return compressed + [f for f in plain if f not in stems]
+
+    @staticmethod
+    def _find_dumped_json(filename):
+        # return the existing compressed or plain version of a json filename, or None
+        for candidate in (filename + ".gz", filename):
+            if os.path.isfile(candidate):
+                return candidate
+        return None
+
+    @staticmethod
+    def _load_json(filename):
+        if filename.endswith(".gz"):
+            with gzip.open(filename, "rt", encoding="utf-8") as f:
+                return json.load(f)
+        with open(filename, "r") as f:
+            return json.load(f)
 
     def _add_design_inputs_from_baseline_model(self, output_dict):
         self.design_var_keys = output_dict["design_vars"].keys()
