@@ -192,7 +192,7 @@ class Server:
         remote_output_dict["additional_constants"] = {}
         for constant in self.additional_constants:
             remote_output_dict["additional_constants"][constant] = {
-                "val": self.prob.get_val(constant),
+                "val": self.prob.get_val(constant, get_remote=True),
                 "units": self._get_variable_units(constant),
             }
             if hasattr(
@@ -483,10 +483,10 @@ class Server:
         for key in input_dict["additional_constants"].keys():
             if (
                 np.array(input_dict["additional_constants"][key]["val"]).shape
-                == self.prob.get_val(key).shape
+                == self.prob.get_val(key, get_remote=True).shape
             ):
                 design_changed_condition = (
-                    self.prob.get_val(key)
+                    self.prob.get_val(key, get_remote=True)
                     != input_dict["additional_constants"][key]["val"]
                 )
                 if isinstance(design_changed_condition, bool):

@@ -529,6 +529,17 @@ class RemoteComp(om.ExplicitComponent):
             else:
                 with open(filename, "r") as file:
                     remote_output_dict = json.load(file)
+                for key, requested in [
+                    ("additional_inputs", self.additional_remote_inputs),
+                    ("additional_constants", self.additional_remote_constants),
+                    ("additional_outputs", self.additional_remote_outputs),
+                ]:
+                    if set(remote_output_dict.get(key, {}).keys()) != set(requested):
+                        self._print_status_message(
+                            f"Dumped json file '{filename}' has different {key} than requested... "
+                            "not reusing for design problem setup"
+                        )
+                        return None
                 model_time_elapsed = remote_output_dict["wall_time"]
                 if self._doing_derivative_evaluation(command):
                     self.times_gradient = np.hstack(

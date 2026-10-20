@@ -368,6 +368,26 @@ class TestPbsFailures(unittest.TestCase):
             manager.server_stopped = True
             self.assertTrue(manager.job_has_expired())
 
+    def test_only_unexpected_job_ends_count_as_expiration_restarts(self):
+        manager = make_manager(job_state="F", job_expiration_max_restarts=1)
+        with contextlib.redirect_stdout(io.StringIO()):
+            # deliberately stopped (e.g. stop_server_for_down_time): relaunch
+            # needed but not an expiration, however often it happens
+            manager.server_stopped = True
+            for _ in range(3):
+                self.assertTrue(manager.job_has_expired())
+            self.assertEqual(manager.job_expiration_restarts, 0)
+            manager.job.update_job_state.assert_not_called()
+            # job ended on its own: counts, and the limit is enforced
+            manager.server_stopped = False
+            self.assertTrue(manager.job_has_expired())
+            self.assertEqual(manager.job_expiration_restarts, 1)
+            with mock.patch.object(manager, "stop_server"):
+                with self.assertRaisesRegex(
+                    zmq_pbs.RemoteComponentError, "maximum number"
+                ):
+                    manager.job_has_expired()
+
     def test_enough_time_is_remaining_when_pbs_unavailable(self):
         manager = make_manager()
         manager.job.update_job_state.side_effect = KeyError("Job_Name")
