@@ -349,7 +349,11 @@ class RemoteComp(om.ExplicitComponent):
 
         if self.dump_json:
             remote_output_dict.update(
-                {"wall_time": model_time_elapsed, "down_time": down_time}
+                {
+                    "wall_time": model_time_elapsed,
+                    "down_time": down_time,
+                    "server_options": self._server_options(),
+                }
             )
             self._dump_json(remote_output_dict, command)
 
@@ -550,6 +554,19 @@ class RemoteComp(om.ExplicitComponent):
                             "not reusing for design problem setup"
                         )
                         return None
+                # server options define the remote problem (e.g. which design variables exist);
+                # files dumped before this was recorded have no entry and are accepted as-is
+                stored_server_options = remote_output_dict.get("server_options")
+                if (
+                    stored_server_options is not None
+                    and stored_server_options != self._server_options()
+                ):
+                    self._print_status_message(
+                        f"Dumped json file '{filename}' was generated with different server options "
+                        f"({stored_server_options}) than requested ({self._server_options()})... "
+                        "not reusing for design problem setup"
+                    )
+                    return None
                 model_time_elapsed = remote_output_dict["wall_time"]
                 if self._doing_derivative_evaluation(command):
                     self.times_gradient = np.hstack(
@@ -686,6 +703,16 @@ class RemoteComp(om.ExplicitComponent):
             return False
         else:
             return True
+
+    def _server_options(self):
+        """
+        Options that determine which problem the server sets up, recorded in dumped
+        json files so that a file from a differently configured server is not reused.
+        """
+        option_names = ["run_server_filename", "additional_server_args"]
+        return {
+            name: self.options[name] for name in option_names if name in self.options
+        }
 
     def _dump_json(self, remote_dict: dict, command: str):
         if "objective" in remote_dict.keys():

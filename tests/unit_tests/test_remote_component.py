@@ -644,6 +644,79 @@ class TestRemoteCompJsonDump(unittest.TestCase):
         self.assertNotIn("z", [name for name, _ in outputs])
 
 
+class TestRemoteCompJsonDumpServerOptions(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.run_dir = self.tmpdir.name
+        self.function0 = os.path.join(
+            self.run_dir, "remote_json_files", "remote_outputs_function0.json"
+        )
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def _dump(self, **options):
+        prob = build_problem(
+            dump_separate_json=True,
+            compress_dumped_json=False,
+            run_directory=self.run_dir,
+            **options,
+        )
+        prob.setup()
+        prob.run_model()
+        return prob
+
+    def test_server_options_recorded_in_dumped_json(self):
+        self._dump(run_server_filename="my_server.py")
+        with open(self.function0) as f:
+            dumped = json.load(f)
+        self.assertEqual(
+            dumped["server_options"], {"run_server_filename": "my_server.py"}
+        )
+
+    def test_reuse_for_setup_with_same_server_options(self):
+        self._dump(run_server_filename="my_server.py")
+        prob2 = build_problem(
+            server_factory=UnreachableServer,
+            server_manager=RecordingServerManager(),
+            reuse_dumped_json=True,
+            run_server_filename="my_server.py",
+            run_directory=self.run_dir,
+        )
+        prob2.setup()
+        prob2.run_model()
+        assert_near_equal(prob2.get_val("f"), 14.5, tolerance=1e-12)
+        self.assertIsNone(prob2.model.remote.server)
+
+    def test_no_reuse_for_setup_with_different_server_options(self):
+        self._dump(run_server_filename="server_without_local_dvs.py")
+        prob2 = build_problem(
+            reuse_dumped_json=True,
+            run_server_filename="server_with_local_dvs.py",
+            run_directory=self.run_dir,
+        )
+        prob2.setup()
+        self.assertIsNotNone(prob2.model.remote.server)
+        self.assertEqual(prob2.model.remote.server.messages_received, ["initialize"])
+
+    def test_reuse_for_setup_accepts_files_without_server_options(self):
+        # files dumped by older versions have no server_options entry
+        self._dump()
+        with open(self.function0) as f:
+            dumped = json.load(f)
+        del dumped["server_options"]
+        with open(self.function0, "w") as f:
+            json.dump(dumped, f)
+        prob2 = build_problem(
+            server_factory=UnreachableServer,
+            server_manager=RecordingServerManager(),
+            reuse_dumped_json=True,
+            run_directory=self.run_dir,
+        )
+        prob2.setup()
+        self.assertIsNone(prob2.model.remote.server)
+
+
 class TestRemoteCompCompressedJsonDump(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
