@@ -806,8 +806,26 @@ class RemoteComp(om.ExplicitComponent):
             )
 
     def _add_additional_outputs_from_baseline_model(self, output_dict):
-        self.additional_remote_outputs = list(output_dict["additional_outputs"].keys())
-        for output in self.additional_remote_outputs:
+        # variables that already exist on this component, so cannot be added again as outputs
+        already_defined = set()
+        for key in [
+            "design_vars",
+            "objective",
+            "constraints",
+            "additional_inputs",
+            "additional_constants",
+        ]:
+            already_defined.update(output_dict.get(key, {}).keys())
+
+        self.additional_remote_outputs = []
+        for output in output_dict["additional_outputs"].keys():
+            if output in already_defined:
+                self._print_status_message(
+                    f"Additional output '{output}' is already a design variable, response, "
+                    "or additional input/constant of the remote component... not adding it again"
+                )
+                continue
+            self.additional_remote_outputs.append(output)
             self.add_output(
                 output.replace(".", self.var_naming_dot_replacement),
                 output_dict["additional_outputs"][output]["val"],

@@ -956,7 +956,7 @@ class MPhysZeroMQServer(Server):
             inputs = self.socket.recv().decode()
         inputs = self.prob.model.comm.bcast(inputs)
 
-        command, input_dict = inputs.split("|")
+        command, input_dict = inputs.split("|", 1)
         if command != "shutdown":
             input_dict = json.loads(input_dict)
         return command, input_dict

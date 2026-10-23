@@ -510,6 +510,48 @@ class TestRemoteCompOptions(unittest.TestCase):
         comp.stop_server()
 
 
+class TestRemoteCompDuplicateAdditionalOutputs(unittest.TestCase):
+    """
+    Additional outputs that are also design variables or responses must not be
+    added a second time (which would fail at setup), but can still be requested
+    so that callers do not need to know the design problem definition.
+    """
+
+    def setUp(self):
+        self.prob = om.Problem()
+        self.prob.model.add_subsystem(
+            "remote",
+            InProcessRemoteComp(
+                server_factory=lambda: InProcessServer(get_paraboloid_group),
+                additional_remote_inputs=["p"],
+                additional_remote_constants=["c"],
+                # z is a genuine additional output; f (objective), g (constraint),
+                # x (design var), p (additional input) and c (constant) already exist
+                additional_remote_outputs=["z", "f", "g", "x", "p", "c"],
+            ),
+            promotes=["*"],
+        )
+        self.prob.setup()
+        self.remote = self.prob.model.remote
+
+    def test_duplicates_are_dropped(self):
+        self.assertEqual(self.remote.additional_remote_outputs, ["z"])
+        outputs = [
+            name for name, _ in self.remote.list_outputs(out_stream=None, prom_name=True)
+        ]
+        self.assertEqual(sorted(outputs), ["f", "g", "h", "k", "z"])
+
+    def test_evaluation_and_totals_still_work(self):
+        self.prob.set_val("x", np.array([0.3, -1.2]))
+        self.prob.run_model()
+        expected = expected_outputs([0.3, -1.2], 3.0, 0.5, 10.0)
+        for name, val in expected.items():
+            assert_near_equal(self.prob.get_val(name), val, tolerance=1e-12)
+        totals = self.prob.compute_totals(of=["f", "z"], wrt=["x", "y", "p"])
+        assert_near_equal(totals["f", "x"], [[0.6, -2.4]], tolerance=1e-12)
+        assert_near_equal(totals["z", "y"], [[1.0], [1.0]], tolerance=1e-12)
+
+
 class TestRemoteCompJsonDump(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
