@@ -537,7 +537,8 @@ class TestRemoteCompDuplicateAdditionalOutputs(unittest.TestCase):
     def test_duplicates_are_dropped(self):
         self.assertEqual(self.remote.additional_remote_outputs, ["z"])
         outputs = [
-            name for name, _ in self.remote.list_outputs(out_stream=None, prom_name=True)
+            name
+            for name, _ in self.remote.list_outputs(out_stream=None, prom_name=True)
         ]
         self.assertEqual(sorted(outputs), ["f", "g", "h", "k", "z"])
 
